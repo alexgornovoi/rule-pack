@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	go build -trimpath -ldflags="-s -w" -o rulepack ./cmd/rulepack
+
+override_dh_auto_install:
+	install -D -m0755 rulepack $(CURDIR)/debian/rulepack/usr/bin/rulepack

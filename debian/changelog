@@ -1,0 +1,5 @@
+rulepack (0.1.0-1) unstable; urgency=medium
+
+  * Initial Debian packaging.
+
+ -- Alex Gornovoi <alex.gornovoi@gmail.com>  Fri, 27 Feb 2026 00:00:00 +0000

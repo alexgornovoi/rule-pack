@@ -46,11 +46,37 @@ Or without tapping first:
 brew install --cask alexgornovoi/homebrew-tap/rulepack
 ```
 
+### Ubuntu PPA
+
+```bash
+sudo add-apt-repository ppa:alexgornovoi/rulepack
+sudo apt update
+sudo apt install rulepack
+```
+
 ## Releases
 
 - All tagged versions: [GitHub Releases](https://github.com/alexgornovoi/rule-pack/releases)
 - First public release: [v0.1.0](https://github.com/alexgornovoi/rule-pack/releases/tag/v0.1.0)
 - Latest assets include platform archives and checksums (`checksums.txt`).
+
+### PPA publisher setup (maintainer)
+
+Use the manual workflow [ppa.yml](.github/workflows/ppa.yml) to build and optionally upload a Launchpad source package.
+
+Required repository secrets for PPA upload:
+
+- `PPA_TARGET`: Launchpad target (example: `ppa:alexgornovoi/rulepack`)
+- `PPA_GPG_PRIVATE_KEY_B64`: Base64-encoded ASCII-armored private key used to sign source uploads.
+- `PPA_GPG_KEY_ID`: GPG key ID/fingerprint matching the uploaded Launchpad key.
+- `PPA_DEBFULLNAME`: Maintainer full name used in changelog/signing context.
+- `PPA_DEBEMAIL`: Maintainer email used in changelog/signing context.
+
+The helper script used by CI is [build-ppa-source.sh](scripts/build-ppa-source.sh):
+
+```bash
+./scripts/build-ppa-source.sh v0.2.0 jammy 1
+```
 
 ## Build From Source (Go)
 
@@ -126,7 +152,7 @@ go run ./cmd/rulepack build --target codex
 
 ```bash
 cd personal-website
-rulepack init --name personal-website
+# optional: rulepack init --name personal-website
 rulepack add https://github.com/person-a/rules.git --export python
 rulepack install
 rulepack build
@@ -213,6 +239,7 @@ Flags:
 ### `add <git-url>`
 
 Adds or replaces a dependency by URI in `rulepack.json`.
+If `rulepack.json` does not exist in the current directory, `add` creates a default one automatically first.
 
 Flags:
 
@@ -221,6 +248,19 @@ Flags:
 - `--ref <ref>`: commit/tag/branch.
 
 `--version` and `--ref` are mutually exclusive.
+
+### `remove <dep-selector> [dep-selector...]`
+
+Removes one or more dependencies from `rulepack.json`.
+Selectors can be 1-based index (`1`) or exact dependency reference (`uri`, `path`, or `profile id`).
+
+```bash
+rulepack remove 1
+rulepack remove https://github.com/org/rules.git
+rulepack remove 1 b4f97d30f0aa__python__2f9baf1a
+```
+
+`remove` also supports alias `uninstall`, and is available under `deps` as `rulepack deps remove ...`.
 
 ### Local dependencies
 
