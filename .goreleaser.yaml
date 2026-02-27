@@ -60,10 +60,10 @@ brews:
 chocolateys:
   - name: rulepack
     title: Rulepack
-    authors: Alex
+    authors: Alex Gornovoi
     project_url: https://github.com/alexgornovoi/rule-pack
     url_template: "https://github.com/alexgornovoi/rule-pack/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
-    copyright: 2026 Alex
+    copyright: 2026 Alex Gornovoi
     project_source_url: https://github.com/alexgornovoi/rule-pack
     docs_url: https://github.com/alexgornovoi/rule-pack#readme
     bug_tracker_url: https://github.com/alexgornovoi/rule-pack/issues
