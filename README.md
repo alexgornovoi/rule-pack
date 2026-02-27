@@ -23,6 +23,30 @@ Or run without building:
 go run ./cmd/rulepack --help
 ```
 
+## Publishing (Chocolatey, APT, Homebrew)
+
+This repo includes GoReleaser config to publish from Git tags:
+
+- Chocolatey package metadata (`chocolateys`) in `.goreleaser.yaml`
+- Debian package artifacts (`nfpms` with `deb`) for APT users
+- Homebrew formula automation (`brews`) for a tap repo
+
+Release workflow:
+
+1. Create and push a version tag (for example `v0.1.0`).
+2. GitHub Actions runs `.github/workflows/release.yml`.
+3. GoReleaser builds binaries, archives, checksums, `.deb`, and publishes release metadata for brew/choco.
+
+Required GitHub secrets:
+
+- `HOMEBREW_TAP_GITHUB_TOKEN`: token with push access to your tap repo (`alexgornovoi/homebrew-tap` by default).
+- `CHOCOLATEY_API_KEY`: API key for `https://push.chocolatey.org/`.
+
+Notes:
+
+- APT publication is provided as signed `.deb` artifacts attached to GitHub Releases. If you need a full APT repository (`apt install` from your own repo URL), publish those `.deb` artifacts to an APT repo service (for example Aptly/Cloudsmith) in an additional step.
+- Update maintainer/license metadata in `.goreleaser.yaml` before first public release.
+
 ## Output modes
 
 - Default: human-readable output with sections and tables.

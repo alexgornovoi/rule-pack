@@ -1,0 +1,76 @@
+version: 2
+
+project_name: rulepack
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: rulepack
+    main: ./cmd/rulepack
+    binary: rulepack
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  use: git
+
+nfpms:
+  - id: deb
+    package_name: rulepack
+    description: Compose instruction modules from Git-based rule packs.
+    homepage: https://github.com/alexgornovoi/rule-pack
+    maintainer: Alex <alex@example.com>
+    license: MIT
+    formats:
+      - deb
+    bindir: /usr/bin
+
+brews:
+  - name: rulepack
+    repository:
+      owner: alexgornovoi
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/alexgornovoi/rule-pack
+    description: Compose instruction modules from Git-based rule packs.
+    license: MIT
+    test: |
+      system "#{bin}/rulepack", "--help"
+
+chocolateys:
+  - name: rulepack
+    title: Rulepack
+    authors: Alex
+    project_url: https://github.com/alexgornovoi/rule-pack
+    url_template: "https://github.com/alexgornovoi/rule-pack/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    copyright: 2026 Alex
+    project_source_url: https://github.com/alexgornovoi/rule-pack
+    docs_url: https://github.com/alexgornovoi/rule-pack#readme
+    bug_tracker_url: https://github.com/alexgornovoi/rule-pack/issues
+    tags: "rulepack cli"
+    summary: Compose instruction modules from Git-based rule packs.
+    description: |
+      rulepack composes instruction modules from Git-based rule packs and builds target outputs.
+    release_notes: https://github.com/alexgornovoi/rule-pack/releases/tag/{{ .Tag }}
+    source_repo: https://push.chocolatey.org/
+    api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
