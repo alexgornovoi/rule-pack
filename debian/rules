@@ -9,9 +9,10 @@ GO_HOME := $(CURDIR)/debian/.home
 	dh $@
 
 override_dh_auto_build:
+	test -f $(CURDIR)/vendor/modules.txt
 	mkdir -p $(GO_CACHE) $(GO_HOME)
 	mkdir -p $(CURDIR)/debian/rulepack/usr/bin
-	HOME=$(GO_HOME) GOCACHE=$(GO_CACHE) $(GO) build -trimpath -ldflags="-s -w" -o $(CURDIR)/debian/rulepack/usr/bin/rulepack ./cmd/rulepack
+	HOME=$(GO_HOME) GOCACHE=$(GO_CACHE) GOPROXY=off GOSUMDB=off GOFLAGS=-mod=vendor $(GO) build -trimpath -ldflags="-s -w" -o $(CURDIR)/debian/rulepack/usr/bin/rulepack ./cmd/rulepack
 
 override_dh_auto_install:
 	:

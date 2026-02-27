@@ -13,7 +13,7 @@ bin/
 coverage.out
 
 # Dependency/vendor directories
-vendor/
+# vendor/ is tracked for offline Debian/Launchpad builds
 
 # IDE/editor
 .vscode/
