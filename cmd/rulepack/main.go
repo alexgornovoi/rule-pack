@@ -42,16 +42,10 @@ func dryRunMessage(dryRun bool) string {
 }
 
 func dependencySource(dep config.Dependency) string {
-	if dep.Source == "" {
-		return "git"
-	}
 	return dep.Source
 }
 
 func lockSource(locked config.LockedSource) string {
-	if locked.Source == "" {
-		return "git"
-	}
 	return locked.Source
 }
 
@@ -176,12 +170,12 @@ func buildLock(cfg config.Ruleset, cfgDir string, gc *git.Client) (config.Lockfi
 func expandDependencyForSnapshot(cfgDir string, gc *git.Client, dep config.Dependency, locked config.LockedSource) ([]pack.Module, string, string, map[string]string, error) {
 	source := dependencySource(dep)
 	if source != lockSource(locked) {
-		return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack install")
+		return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack deps install")
 	}
 	switch source {
 	case "git":
 		if dep.URI != locked.URI {
-			return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack install")
+			return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack deps install")
 		}
 		repoDir, err := gc.EnsureRepo(dep.URI)
 		if err != nil {
@@ -211,14 +205,14 @@ func expandDependencyForSnapshot(cfgDir string, gc *git.Client, dep config.Depen
 			return nil, "", "", nil, err
 		}
 		if locked.Path != "" && relPath != locked.Path {
-			return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack install")
+			return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack deps install")
 		}
 		modules, hash, err := pack.ExpandLocalDependency(absLocalPath, dep, "local")
 		if err != nil {
 			return nil, "", "", nil, err
 		}
 		if locked.ContentHash != "" && hash != locked.ContentHash {
-			return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack install")
+			return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack deps install")
 		}
 		prov := map[string]string{"path": relPath, "contentHash": hash}
 		return modules, hash, absLocalPath, prov, nil
@@ -232,7 +226,7 @@ func expandDependencyForSnapshot(cfgDir string, gc *git.Client, dep config.Depen
 			return nil, "", "", nil, err
 		}
 		if locked.Profile != "" && meta.ID != locked.Profile {
-			return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack install")
+			return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack deps install")
 		}
 		depRead := profileDependencyForRead(dep)
 		modules, hash, err := pack.ExpandProfileDependency(profileDir, depRead, profilesvc.ProfileCommit)
@@ -240,13 +234,46 @@ func expandDependencyForSnapshot(cfgDir string, gc *git.Client, dep config.Depen
 			return nil, "", "", nil, err
 		}
 		if locked.ContentHash != "" && hash != locked.ContentHash {
-			return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack install")
+			return nil, "", "", nil, errors.New("cannot save profile: dependency not installed; run rulepack deps install")
 		}
 		prov := map[string]string{"profile": meta.ID, "contentHash": hash}
 		return modules, hash, meta.ID, prov, nil
 	default:
 		return nil, "", "", nil, fmt.Errorf("unsupported source %q", dep.Source)
 	}
+}
+
+func collectSnapshotForAllDependencies(cfg config.Ruleset, lock config.Lockfile, cfgDir string, gc *git.Client) ([]pack.Module, []profilesvc.SourceSnapshot, error) {
+	if len(cfg.Dependencies) != len(lock.Resolved) {
+		return nil, nil, errors.New("cannot save profile: dependency not installed; run rulepack deps install")
+	}
+	modules := make([]pack.Module, 0)
+	sources := make([]profilesvc.SourceSnapshot, 0, len(cfg.Dependencies))
+	for i, dep := range cfg.Dependencies {
+		locked := lock.Resolved[i]
+		expanded, _, sourceRef, provenance, err := expandDependencyForSnapshot(cfgDir, gc, dep, locked)
+		if err != nil {
+			return nil, nil, err
+		}
+		modules = append(modules, expanded...)
+		moduleIDs := make([]string, 0, len(expanded))
+		for _, m := range expanded {
+			moduleIDs = append(moduleIDs, m.ID)
+		}
+		buildSortStrings(moduleIDs)
+		sources = append(sources, profilesvc.SourceSnapshot{
+			SourceType:   dependencySource(dep),
+			SourceRef:    sourceRef,
+			SourceExport: dep.Export,
+			Provenance:   provenance,
+			ModuleIDs:    moduleIDs,
+		})
+	}
+	if err := build.CheckDuplicateIDs(modules); err != nil {
+		return nil, nil, err
+	}
+	build.Sort(modules)
+	return modules, sources, nil
 }
 
 func findDependencyIndex(cfg config.Ruleset, selector string) (int, error) {
@@ -290,34 +317,86 @@ func dependencyReference(dep config.Dependency) string {
 	}
 }
 
-func dependencyFromProfileMetadata(meta profilesvc.Metadata) (config.Dependency, error) {
-	dep := config.Dependency{Source: meta.SourceType, Export: meta.SourceExport}
-	switch meta.SourceType {
+func dependencyFromSourceSnapshot(src profilesvc.SourceSnapshot) (config.Dependency, error) {
+	dep := config.Dependency{Source: src.SourceType, Export: src.SourceExport}
+	switch src.SourceType {
 	case "git":
-		dep.URI = meta.SourceRef
-		requested := meta.Provenance["requested"]
-		switch meta.Provenance["requestType"] {
+		dep.URI = src.SourceRef
+		requested := src.Provenance["requested"]
+		switch src.Provenance["requestType"] {
 		case "version":
 			dep.Version = requested
 		case "ref":
 			dep.Ref = requested
 		default:
-			// Backward compatibility: old snapshots may not carry requestType.
 			if requested != "" && requested != "HEAD" {
 				dep.Ref = requested
 			}
 		}
 	case "local":
-		if !filepath.IsAbs(meta.SourceRef) {
-			return config.Dependency{}, fmt.Errorf("profile %s local source is not absolute; cannot refresh safely", meta.ID)
+		if !filepath.IsAbs(src.SourceRef) {
+			return config.Dependency{}, fmt.Errorf("profile local source %q is not absolute; cannot refresh safely", src.SourceRef)
 		}
-		dep.Path = meta.SourceRef
+		dep.Path = src.SourceRef
 	case profilesvc.ProfileSource:
-		dep.Profile = meta.SourceRef
+		dep.Profile = src.SourceRef
 	default:
-		return config.Dependency{}, fmt.Errorf("unsupported profile source type %q", meta.SourceType)
+		return config.Dependency{}, fmt.Errorf("unsupported profile source type %q", src.SourceType)
 	}
 	return dep, nil
+}
+
+func sourceStatusLabel(sourceType string, sourceRef string) string {
+	return sourceType + ":" + sourceRef
+}
+
+func resolveFreshModulesForProfile(gc *git.Client, meta profilesvc.Metadata, oldModules []pack.Module) ([]pack.Module, []sourceStatus, []sourceSkip, error) {
+	if len(meta.Sources) == 0 {
+		return nil, nil, nil, errors.New("unsupported profile format: missing sources; re-save profile with current CLI")
+	}
+
+	oldByID := make(map[string]pack.Module, len(oldModules))
+	for _, m := range oldModules {
+		oldByID[m.ID] = m
+	}
+	seen := make(map[string]struct{}, len(oldModules))
+	fresh := make([]pack.Module, 0, len(oldModules))
+	refreshed := make([]sourceStatus, 0, len(meta.Sources))
+	skipped := make([]sourceSkip, 0)
+	for _, src := range meta.Sources {
+		label := sourceStatusLabel(src.SourceType, src.SourceRef)
+		dep, depErr := dependencyFromSourceSnapshot(src)
+		if depErr == nil {
+			mods, err := resolveModulesForDependency(gc, dep)
+			if err == nil {
+				fresh = append(fresh, mods...)
+				for _, m := range mods {
+					seen[m.ID] = struct{}{}
+				}
+				refreshed = append(refreshed, sourceStatus{Source: label})
+				continue
+			}
+			depErr = err
+		}
+		skipped = append(skipped, sourceSkip{Source: label, Reason: depErr.Error()})
+		for _, id := range src.ModuleIDs {
+			if m, ok := oldByID[id]; ok {
+				fresh = append(fresh, m)
+				seen[id] = struct{}{}
+			}
+		}
+	}
+	for _, m := range oldModules {
+		if _, ok := seen[m.ID]; ok {
+			continue
+		}
+		fresh = append(fresh, m)
+	}
+	if err := build.CheckDuplicateIDs(fresh); err != nil {
+		return nil, nil, nil, err
+	}
+	build.Sort(fresh)
+	return fresh, refreshed, skipped, nil
 }
 
 func resolveModulesForDependency(gc *git.Client, dep config.Dependency) ([]pack.Module, error) {

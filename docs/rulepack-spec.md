@@ -21,7 +21,7 @@ Top-level schema:
 - `specVersion` (string, required): currently validated as non-empty.
 - `name` (string): human-readable rulepack name.
 - `dependencies` (array):
-  - `source` (string): `"git"`, `"local"`, or `"profile"`. If omitted, treated as `"git"` for compatibility.
+  - `source` (string, required): `"git"`, `"local"`, or `"profile"`.
   - `uri` (string, required for git): Git clone URL.
   - `path` (string, required for local): local filesystem path to a rule pack directory.
   - `profile` (string, required for profile): saved profile ID from global profile storage.
@@ -47,7 +47,7 @@ Top-level schema:
 
 ## `rulepack.lock.json`
 
-Written by `rulepack install`.
+Written by `rulepack deps install`.
 
 ```json
 {
@@ -83,7 +83,7 @@ Written by `rulepack install`.
 
 - `lockVersion` (string): current value is `0.1`.
 - `resolved` (array):
-  - `source` (string): `git` or `local`. Missing values are treated as `git` for compatibility.
+  - `source` (string, required): `git`, `local`, or `profile`.
   - `uri` (string): dependency URI.
   - `path` (string, optional): local dependency path (stored relative to the directory containing `rulepack.json`, with `/` separators).
   - `profile` (string, optional): saved profile ID for profile source.
@@ -141,9 +141,32 @@ Saved profiles live in:
 
 Directory contents:
 
-- `profile.json`: metadata (`id`, `alias`, `sourceType`, `sourceRef`, `sourceExport`, `createdAt`, `contentHash`, `moduleCount`, `provenance`)
+- `profile.json`: metadata (`id`, `alias`, required `sources[]`, `createdAt`, `contentHash`, `moduleCount`)
 - `rulepack.json`: snapshot rule pack manifest
 - `modules/`: snapshotted module files
+
+### Profile metadata `sources` (required)
+
+Combined snapshots can include a `sources` array for best-effort refresh/diff:
+
+```json
+{
+  "sources": [
+    {
+      "sourceType": "git",
+      "sourceRef": "https://github.com/org/repo.git",
+      "sourceExport": "default",
+      "provenance": {
+        "requestType": "version",
+        "requested": "^1.2.0"
+      },
+      "moduleIds": ["python.base", "python.tests"]
+    }
+  ]
+}
+```
+
+Profiles missing `sources` are unsupported and must be re-saved with the current CLI.
 
 ## Rule pack format (`rulepack.json`)
 
@@ -194,10 +217,6 @@ Directory contents:
 
 - If dependency `export` is set, that named export must exist.
 - If dependency `export` is set, that named export is used.
-- If dependency `export` is set and no named export exists, Rulepack falls back to
-  folder shorthand: it selects modules under `modules/<export>/` (and nested paths).
-  Example: `--export standards` selects modules with paths like
-  `modules/standards/...`.
 - If not set:
   - use `exports.default` if present,
   - otherwise implicit selector: `{"include":["**"]}`.
@@ -264,11 +283,11 @@ After all dependencies are expanded:
 
 For local dependencies during `build`, the CLI recomputes `contentHash` and compares against lockfile. If it differs, build fails with:
 
-- `local dependency changed; run rulepack install`
+- `local dependency changed; run rulepack deps install`
 
 For profile dependencies during `build`, the CLI recomputes `contentHash` and compares against lockfile. If it differs, build fails with:
 
-- `profile snapshot drift detected; run rulepack install`
+- `profile snapshot drift detected; run rulepack deps install`
 
 ## Render targets
 

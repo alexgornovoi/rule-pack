@@ -16,10 +16,13 @@ import (
 func (a *app) newDepsCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "deps",
-		Short: "Inspect dependency configuration",
+		Short: "Manage dependency lifecycle",
 	}
+	root.AddCommand(a.newDepsAddCmd())
 	root.AddCommand(a.newDepsListCmd())
 	root.AddCommand(a.newDepsRemoveCmd())
+	root.AddCommand(a.newDepsInstallCmd())
+	root.AddCommand(a.newDepsOutdatedCmd())
 	return root
 }
 
@@ -76,7 +79,7 @@ func (a *app) newDepsListCmd() *cobra.Command {
 	return cmd
 }
 
-func (a *app) newInstallCmd() *cobra.Command {
+func (a *app) newDepsInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Resolve dependencies and write rulepack.lock.json",
@@ -131,7 +134,7 @@ func (a *app) newInstallCmd() *cobra.Command {
 	return cmd
 }
 
-func (a *app) newOutdatedCmd() *cobra.Command {
+func (a *app) newDepsOutdatedCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "outdated",
 		Short: "Check whether dependencies have newer resolvable revisions",
@@ -145,7 +148,7 @@ func (a *app) newOutdatedCmd() *cobra.Command {
 				return err
 			}
 			if len(cfg.Dependencies) != len(lock.Resolved) {
-				return fmt.Errorf("lockfile mismatch: run rulepack install")
+				return fmt.Errorf("lockfile mismatch: run rulepack deps install")
 			}
 			gc, err := git.NewClient()
 			if err != nil {

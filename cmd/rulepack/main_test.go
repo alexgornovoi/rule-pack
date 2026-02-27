@@ -31,12 +31,12 @@ func TestResolveLocalPath_RelativeToConfigDir(t *testing.T) {
 	}
 }
 
-func TestSourceDefaults(t *testing.T) {
-	if got := dependencySource(config.Dependency{}); got != "git" {
-		t.Fatalf("expected git default dependency source, got %s", got)
+func TestSourceNoDefaults(t *testing.T) {
+	if got := dependencySource(config.Dependency{}); got != "" {
+		t.Fatalf("expected empty dependency source, got %s", got)
 	}
-	if got := lockSource(config.LockedSource{}); got != "git" {
-		t.Fatalf("expected git default lock source, got %s", got)
+	if got := lockSource(config.LockedSource{}); got != "" {
+		t.Fatalf("expected empty lock source, got %s", got)
 	}
 }
 

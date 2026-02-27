@@ -91,6 +91,67 @@ func TestWriteCursorGlobModeRequiresGlobs(t *testing.T) {
 	}
 }
 
+func TestCursorUnmanagedOverwrites_WarnsOnNonManagedCollision(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "rules")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	existing := filepath.Join(outDir, "100-python_base.mdc")
+	if err := os.WriteFile(existing, []byte("manual content\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile existing: %v", err)
+	}
+
+	target := config.TargetEntry{
+		OutDir:    outDir,
+		PerModule: true,
+		Ext:       ".mdc",
+	}
+	modules := []pack.Module{
+		{
+			ID:       "python.base",
+			Priority: 100,
+			Content:  "A\n",
+		},
+	}
+
+	warnings, err := CursorUnmanagedOverwrites(target, modules)
+	if err != nil {
+		t.Fatalf("CursorUnmanagedOverwrites: %v", err)
+	}
+	if len(warnings) != 1 || warnings[0] != existing {
+		t.Fatalf("unexpected warnings: %#v", warnings)
+	}
+}
+
+func TestCursorUnmanagedOverwrites_IgnoresManagedCollision(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "rules")
+	target := config.TargetEntry{
+		OutDir:    outDir,
+		PerModule: true,
+		Ext:       ".mdc",
+	}
+	modules := []pack.Module{
+		{
+			PackName:    "pack-a",
+			PackVersion: "1.0.0",
+			Commit:      "abcdef123456",
+			ID:          "python.base",
+			Priority:    100,
+			Content:     "A\n",
+		},
+	}
+	if err := WriteCursor(target, modules); err != nil {
+		t.Fatalf("WriteCursor: %v", err)
+	}
+	warnings, err := CursorUnmanagedOverwrites(target, modules)
+	if err != nil {
+		t.Fatalf("CursorUnmanagedOverwrites: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings for managed file, got %#v", warnings)
+	}
+}
+
 func mustReadFile(t *testing.T, path string) string {
 	t.Helper()
 	bytes, err := os.ReadFile(path)

@@ -21,26 +21,28 @@ const (
 )
 
 type Metadata struct {
-	ID           string            `json:"id"`
-	Alias        string            `json:"alias,omitempty"`
+	ID          string           `json:"id"`
+	Alias       string           `json:"alias,omitempty"`
+	Sources     []SourceSnapshot `json:"sources"`
+	CreatedAt   string           `json:"createdAt"`
+	ContentHash string           `json:"contentHash"`
+	ModuleCount int              `json:"moduleCount"`
+}
+
+type SourceSnapshot struct {
 	SourceType   string            `json:"sourceType"`
 	SourceRef    string            `json:"sourceRef"`
 	SourceExport string            `json:"sourceExport,omitempty"`
-	CreatedAt    string            `json:"createdAt"`
-	ContentHash  string            `json:"contentHash"`
-	ModuleCount  int               `json:"moduleCount"`
 	Provenance   map[string]string `json:"provenance,omitempty"`
+	ModuleIDs    []string          `json:"moduleIds,omitempty"`
 }
 
 type SaveInput struct {
-	ID           string
-	Alias        string
-	SourceType   string
-	SourceRef    string
-	SourceExport string
-	ContentHash  string
-	Modules      []pack.Module
-	Provenance   map[string]string
+	ID          string
+	Alias       string
+	Sources     []SourceSnapshot
+	ContentHash string
+	Modules     []pack.Module
 }
 
 func GlobalRoot() (string, error) {
@@ -62,9 +64,12 @@ func SaveSnapshot(input SaveInput) (Metadata, error) {
 	if input.ContentHash == "" {
 		return Metadata{}, errors.New("missing profile content hash")
 	}
+	if len(input.Sources) == 0 {
+		return Metadata{}, errors.New("missing profile sources")
+	}
 	id := input.ID
 	if id == "" {
-		id = buildID(input.SourceType, input.SourceRef, input.SourceExport, input.ContentHash)
+		id = buildID(input.Sources, input.ContentHash)
 	}
 	profileDir := filepath.Join(root, id)
 	if err := os.MkdirAll(profileDir, 0o755); err != nil {
@@ -109,15 +114,12 @@ func SaveSnapshot(input SaveInput) (Metadata, error) {
 	}
 
 	meta := Metadata{
-		ID:           id,
-		Alias:        input.Alias,
-		SourceType:   input.SourceType,
-		SourceRef:    input.SourceRef,
-		SourceExport: input.SourceExport,
-		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
-		ContentHash:  input.ContentHash,
-		ModuleCount:  len(input.Modules),
-		Provenance:   input.Provenance,
+		ID:          id,
+		Alias:       input.Alias,
+		Sources:     input.Sources,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+		ContentHash: input.ContentHash,
+		ModuleCount: len(input.Modules),
 	}
 	metaPath := filepath.Join(profileDir, "profile.json")
 	if _, err := os.Stat(metaPath); err == nil {
@@ -129,6 +131,9 @@ func SaveSnapshot(input SaveInput) (Metadata, error) {
 				meta.Alias = existing.Alias
 			}
 		}
+	}
+	if err := ensureAliasUnique(root, meta.Alias, meta.ID); err != nil {
+		return Metadata{}, err
 	}
 	if err := writeJSON(metaPath, meta); err != nil {
 		return Metadata{}, err
@@ -171,6 +176,8 @@ func ResolveIDOrAlias(ref string) (Metadata, string, error) {
 	directPath := filepath.Join(root, ref)
 	if meta, err := readProfile(directPath); err == nil {
 		return meta, directPath, nil
+	} else if _, statErr := os.Stat(directPath); statErr == nil {
+		return Metadata{}, "", err
 	}
 
 	all, err := List()
@@ -178,9 +185,31 @@ func ResolveIDOrAlias(ref string) (Metadata, string, error) {
 		return Metadata{}, "", err
 	}
 	matches := make([]Metadata, 0, 1)
-	for _, meta := range all {
-		if meta.Alias == ref {
-			matches = append(matches, meta)
+	for _, entry := range all {
+		if entry.Alias == ref {
+			matches = append(matches, entry)
+		}
+	}
+	if len(matches) == 0 {
+		entries, err := os.ReadDir(root)
+		if err == nil {
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+				profileDir := filepath.Join(root, entry.Name())
+				_, readErr := readProfile(profileDir)
+				if readErr == nil {
+					continue
+				}
+				if !strings.Contains(readErr.Error(), "unsupported profile format") {
+					continue
+				}
+				alias, aliasErr := readProfileAlias(profileDir)
+				if aliasErr == nil && alias == ref {
+					return Metadata{}, "", readErr
+				}
+			}
 		}
 	}
 	if len(matches) == 0 {
@@ -192,18 +221,61 @@ func ResolveIDOrAlias(ref string) (Metadata, string, error) {
 	return matches[0], filepath.Join(root, matches[0].ID), nil
 }
 
-func buildID(sourceType, sourceRef, sourceExport, contentHash string) string {
-	export := sourceExport
-	if export == "" {
-		export = "default"
+func Remove(ref string) (Metadata, string, error) {
+	meta, profileDir, err := ResolveIDOrAlias(ref)
+	if err != nil {
+		return Metadata{}, "", err
 	}
-	sourceDigest := sha256.Sum256([]byte(sourceType + "|" + sourceRef))
+	if err := os.RemoveAll(profileDir); err != nil {
+		return Metadata{}, "", err
+	}
+	return meta, profileDir, nil
+}
+
+func RemoveAll() ([]Metadata, error) {
+	root, err := GlobalRoot()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	removed := make([]Metadata, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		profileDir := filepath.Join(root, entry.Name())
+		meta, err := readProfile(profileDir)
+		if err != nil {
+			continue
+		}
+		if err := os.RemoveAll(profileDir); err != nil {
+			return nil, err
+		}
+		removed = append(removed, meta)
+	}
+	sort.Slice(removed, func(i, j int) bool { return removed[i].ID < removed[j].ID })
+	return removed, nil
+}
+
+func buildID(sources []SourceSnapshot, contentHash string) string {
+	keys := make([]string, 0, len(sources))
+	for _, s := range sources {
+		keys = append(keys, s.SourceType+"|"+s.SourceRef+"|"+s.SourceExport)
+	}
+	sort.Strings(keys)
+	sourceDigest := sha256.Sum256([]byte(strings.Join(keys, ";")))
 	sourcePrefix := hex.EncodeToString(sourceDigest[:])[:12]
 	hashPrefix := contentHash
 	if len(hashPrefix) > 8 {
 		hashPrefix = hashPrefix[:8]
 	}
-	return sourcePrefix + "__" + sanitizeID(export) + "__" + hashPrefix
+	return sourcePrefix + "__default__" + hashPrefix
 }
 
 func ComputeContentHash(modules []pack.Module, export string) string {
@@ -289,7 +361,54 @@ func readProfile(profileDir string) (Metadata, error) {
 	if meta.ID == "" {
 		return Metadata{}, errors.New("invalid profile metadata")
 	}
+	if len(meta.Sources) == 0 {
+		return Metadata{}, errors.New("unsupported profile format: missing sources; re-save profile with current CLI")
+	}
 	return meta, nil
+}
+
+func ensureAliasUnique(root, alias, currentID string) error {
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		meta, err := readProfile(filepath.Join(root, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if meta.ID == currentID {
+			continue
+		}
+		if meta.Alias == alias {
+			return fmt.Errorf("alias %q already exists; choose a different alias", alias)
+		}
+	}
+	return nil
+}
+
+func readProfileAlias(profileDir string) (string, error) {
+	bytes, err := os.ReadFile(filepath.Join(profileDir, "profile.json"))
+	if err != nil {
+		return "", err
+	}
+	var payload struct {
+		Alias string `json:"alias"`
+	}
+	if err := json.Unmarshal(bytes, &payload); err != nil {
+		return "", err
+	}
+	return payload.Alias, nil
 }
 
 func writeJSON(path string, value any) error {
@@ -310,9 +429,9 @@ type snapshotRulepack struct {
 }
 
 type snapshotModule struct {
-	ID       string `json:"id"`
-	Path     string `json:"path"`
-	Priority int    `json:"priority"`
+	ID       string           `json:"id"`
+	Path     string           `json:"path"`
+	Priority int              `json:"priority"`
 	Apply    pack.ApplyConfig `json:"apply,omitempty"`
 }
 

@@ -18,6 +18,11 @@ func TestLoadRulesetDependencyValidation(t *testing.T) {
 			json: `{"specVersion":"0.1","name":"x","dependencies":[{"source":"git","uri":"https://example.com/a.git","version":"^1.0.0"}]}`,
 		},
 		{
+			name:    "missing source rejected",
+			json:    `{"specVersion":"0.1","name":"x","dependencies":[{"uri":"https://example.com/a.git"}]}`,
+			wantErr: "source is required",
+		},
+		{
 			name: "valid local dependency",
 			json: `{"specVersion":"0.1","name":"x","dependencies":[{"source":"local","path":"../rules","export":"default"}]}`,
 		},
@@ -86,17 +91,14 @@ func TestLoadRulesetDependencyValidation(t *testing.T) {
 	}
 }
 
-func TestLoadLockfileDefaultsMissingSourceToGit(t *testing.T) {
+func TestLoadLockfileRejectsMissingSource(t *testing.T) {
 	path := writeTempFile(t, "rulepack.lock.json", `{"lockVersion":"0.1","resolved":[{"uri":"https://example.com/a.git","commit":"abc123"}]}`)
-	lock, err := LoadLockfile(path)
-	if err != nil {
-		t.Fatalf("LoadLockfile: %v", err)
+	_, err := LoadLockfile(path)
+	if err == nil {
+		t.Fatalf("expected error for missing source")
 	}
-	if len(lock.Resolved) != 1 {
-		t.Fatalf("expected one resolved entry, got %d", len(lock.Resolved))
-	}
-	if lock.Resolved[0].Source != "git" {
-		t.Fatalf("expected source=git, got %q", lock.Resolved[0].Source)
+	if !strings.Contains(err.Error(), "missing source") {
+		t.Fatalf("expected missing source error, got %v", err)
 	}
 }
 

@@ -112,8 +112,7 @@ func LoadLockfile(path string) (Lockfile, error) {
 	}
 	for i := range lock.Resolved {
 		if lock.Resolved[i].Source == "" {
-			// Backward compatibility: old lock entries are implicitly git.
-			lock.Resolved[i].Source = "git"
+			return lock, fmt.Errorf("resolved[%d]: missing source", i)
 		}
 	}
 	return lock, nil
@@ -134,11 +133,10 @@ func saveJSON(path string, value any) error {
 
 func validateDependencies(deps []Dependency) error {
 	for i, dep := range deps {
-		source := dep.Source
-		if source == "" {
-			// Backward compatibility: previously all dependencies were git.
-			source = "git"
+		if dep.Source == "" {
+			return fmt.Errorf("dependency[%d]: source is required", i)
 		}
+		source := dep.Source
 		switch source {
 		case "git":
 			if dep.URI == "" {

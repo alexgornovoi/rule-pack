@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 
@@ -18,6 +17,7 @@ import (
 
 func (a *app) newBuildCmd() *cobra.Command {
 	var target string
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "build",
 		Short: "Compile resolved rule packs into target outputs",
@@ -36,7 +36,7 @@ func (a *app) newBuildCmd() *cobra.Command {
 				return err
 			}
 			if len(cfg.Dependencies) != len(lock.Resolved) {
-				return fmt.Errorf("lockfile mismatch: run rulepack install")
+				return fmt.Errorf("lockfile mismatch: run rulepack deps install")
 			}
 
 			gc, err := git.NewClient()
@@ -79,7 +79,7 @@ func (a *app) newBuildCmd() *cobra.Command {
 						return err
 					}
 					if contentHash != locked.ContentHash {
-						return fmt.Errorf("local dependency changed; run rulepack install")
+						return fmt.Errorf("local dependency changed; run rulepack deps install")
 					}
 					modules = append(modules, expanded...)
 				case "profile":
@@ -100,7 +100,7 @@ func (a *app) newBuildCmd() *cobra.Command {
 						return err
 					}
 					if contentHash != locked.ContentHash {
-						return fmt.Errorf("profile snapshot drift detected; run rulepack install")
+						return fmt.Errorf("profile snapshot drift detected; run rulepack deps install")
 					}
 					modules = append(modules, expanded...)
 				default:
@@ -116,6 +116,39 @@ func (a *app) newBuildCmd() *cobra.Command {
 
 			targets := resolveTargets(target)
 			targetRows := make([]buildTargetRow, 0, len(targets))
+			warnings := make([]string, 0)
+			unmanagedCollisions := make([]string, 0)
+			for _, t := range targets {
+				entry, ok := cfg.Targets[t]
+				if !ok {
+					return fmt.Errorf("target %q not configured", t)
+				}
+				switch t {
+				case "cursor":
+					collisions, err := render.CursorUnmanagedOverwrites(entry, modules)
+					if err != nil {
+						return err
+					}
+					for _, path := range collisions {
+						unmanagedCollisions = append(unmanagedCollisions, path)
+						warnings = append(warnings, fmt.Sprintf("cursor output will overwrite existing non-rulepack file: %s", path))
+					}
+				default:
+					continue
+				}
+			}
+			if err := confirmRiskAction(
+				cmd,
+				a.jsonMode,
+				yes,
+				len(unmanagedCollisions) > 0,
+				fmt.Sprintf("build detected %d unmanaged cursor overwrite collision(s)", len(unmanagedCollisions)),
+				fmt.Sprintf("Build will overwrite %d existing non-rulepack cursor file(s). Continue?", len(unmanagedCollisions)),
+				unmanagedCollisions,
+				"build",
+			); err != nil {
+				return err
+			}
 			for _, t := range targets {
 				entry, ok := cfg.Targets[t]
 				if !ok {
@@ -142,7 +175,7 @@ func (a *app) newBuildCmd() *cobra.Command {
 				}
 			}
 
-			out := buildOutput{ModuleCount: len(modules), Targets: targetRows}
+			out := buildOutput{ModuleCount: len(modules), Targets: targetRows, Warnings: warnings}
 			if a.jsonMode {
 				return a.renderer.RenderJSON("build", out)
 			}
@@ -150,10 +183,15 @@ func (a *app) newBuildCmd() *cobra.Command {
 			for _, r := range targetRows {
 				rows = append(rows, []string{r.Target, r.Output, r.Status})
 			}
+			events := make([]cliout.Event, 0, len(warnings))
+			for _, warning := range warnings {
+				events = append(events, cliout.Event{Level: "warn", Message: warning})
+			}
 			a.renderer.RenderHuman(cliout.HumanPayload{
 				Command: "build",
 				Title:   "Build Outputs",
 				Tables:  []cliout.Table{{Title: "Build Targets", Columns: []string{"Target", "Output", "Status"}, Rows: rows}},
+				Events:  events,
 				Summary: map[string]string{"moduleCount": strconv.Itoa(len(modules)), "duplicates": "none", "overrides": strconv.Itoa(len(cfg.Overrides))},
 				Done:    "Build complete",
 			})
@@ -161,70 +199,6 @@ func (a *app) newBuildCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", "all", "target: cursor|copilot|codex|all")
-	return cmd
-}
-
-func (a *app) newDoctorCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "doctor",
-		Short: "Validate environment, config, lockfile, and profile store",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			checks := []doctorCheck{}
-			if _, err := os.Stat(config.RulesetFileName); err != nil {
-				checks = append(checks, doctorCheck{Name: "ruleset file", Status: "fail", Details: err.Error()})
-			} else {
-				checks = append(checks, doctorCheck{Name: "ruleset file", Status: "ok"})
-			}
-			cfg, cfgErr := config.LoadRuleset(config.RulesetFileName)
-			if cfgErr != nil {
-				checks = append(checks, doctorCheck{Name: "ruleset parse", Status: "fail", Details: cfgErr.Error()})
-			} else {
-				checks = append(checks, doctorCheck{Name: "ruleset parse", Status: "ok"})
-			}
-			lock, lockErr := config.LoadLockfile(config.LockFileName)
-			if lockErr != nil {
-				checks = append(checks, doctorCheck{Name: "lockfile", Status: "warn", Details: lockErr.Error()})
-			} else {
-				checks = append(checks, doctorCheck{Name: "lockfile", Status: "ok"})
-				if cfgErr == nil && len(cfg.Dependencies) != len(lock.Resolved) {
-					checks = append(checks, doctorCheck{Name: "lock alignment", Status: "fail", Details: "dependency count differs from lockfile"})
-				} else if cfgErr == nil {
-					checks = append(checks, doctorCheck{Name: "lock alignment", Status: "ok"})
-				}
-			}
-			profileRoot, pErr := profilesvc.GlobalRoot()
-			if pErr != nil {
-				checks = append(checks, doctorCheck{Name: "profile store", Status: "fail", Details: pErr.Error()})
-			} else {
-				if _, err := os.Stat(profileRoot); err == nil {
-					checks = append(checks, doctorCheck{Name: "profile store", Status: "ok", Details: profileRoot})
-				} else {
-					checks = append(checks, doctorCheck{Name: "profile store", Status: "warn", Details: profileRoot + " (not created yet)"})
-				}
-			}
-			_, gErr := git.NewClient()
-			if gErr != nil {
-				checks = append(checks, doctorCheck{Name: "git client", Status: "fail", Details: gErr.Error()})
-			} else {
-				checks = append(checks, doctorCheck{Name: "git client", Status: "ok"})
-			}
-
-			out := doctorOutput{Checks: checks}
-			if a.jsonMode {
-				return a.renderer.RenderJSON("doctor", out)
-			}
-			rows := make([][]string, 0, len(checks))
-			for _, c := range checks {
-				rows = append(rows, []string{c.Name, c.Status, c.Details})
-			}
-			a.renderer.RenderHuman(cliout.HumanPayload{
-				Command: "doctor",
-				Title:   "Diagnostics",
-				Tables:  []cliout.Table{{Title: "Checks", Columns: []string{"Check", "Status", "Details"}, Rows: rows}},
-				Done:    "Doctor run complete",
-			})
-			return nil
-		},
-	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm risky overwrites without prompting")
 	return cmd
 }

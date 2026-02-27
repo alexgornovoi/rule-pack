@@ -69,6 +69,27 @@ func WriteCursor(target config.TargetEntry, modules []pack.Module) error {
 	return os.WriteFile(target.OutFile, []byte(normalize(merge(cursorModules, true))), 0o644)
 }
 
+func CursorUnmanagedOverwrites(target config.TargetEntry, modules []pack.Module) ([]string, error) {
+	writePaths, err := cursorWritePaths(target, modules)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(writePaths))
+	for _, path := range writePaths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		if !isRulepackManagedCursorContent(string(data)) {
+			out = append(out, path)
+		}
+	}
+	return out, nil
+}
+
 func WriteMerged(outFile string, modules []pack.Module) error {
 	if outFile == "" {
 		return fmt.Errorf("missing output file")
@@ -162,6 +183,54 @@ func cursorPerModuleContent(ext string, m pack.Module, rule cursorApplyRule) (st
 	b.WriteString("\n")
 	b.WriteString(m.Content)
 	return b.String(), nil
+}
+
+func cursorWritePaths(target config.TargetEntry, modules []pack.Module) ([]string, error) {
+	ext := target.Ext
+	if ext == "" {
+		ext = ".mdc"
+	}
+	if target.OutDir == "" {
+		target.OutDir = ".cursor/rules"
+	}
+	cursorModules := make([]pack.Module, 0, len(modules))
+	for _, m := range modules {
+		rule, err := resolveCursorApplyRule(m)
+		if err != nil {
+			return nil, err
+		}
+		if rule.Mode == "never" {
+			continue
+		}
+		cursorModules = append(cursorModules, m)
+	}
+	if target.PerModule {
+		out := make([]string, 0, len(cursorModules))
+		for _, m := range cursorModules {
+			name := fmt.Sprintf("%03d-%s%s", m.Priority, sanitizeID(m.ID), ext)
+			out = append(out, filepath.Join(target.OutDir, name))
+		}
+		return out, nil
+	}
+	for _, m := range cursorModules {
+		rule, err := resolveCursorApplyRule(m)
+		if err != nil {
+			return nil, err
+		}
+		if rule.Mode == "glob" || rule.Mode == "agent" || rule.Mode == "manual" {
+			return nil, fmt.Errorf("cursor target with perModule=false does not support apply mode %q for module %s", rule.Mode, m.ID)
+		}
+	}
+	if target.OutFile == "" {
+		target.OutFile = filepath.Join(target.OutDir, "rules"+ext)
+	}
+	return []string{target.OutFile}, nil
+}
+
+func isRulepackManagedCursorContent(content string) bool {
+	return strings.Contains(content, "<!-- pack=") &&
+		strings.Contains(content, " module=") &&
+		strings.Contains(content, " priority=")
 }
 
 func cursorFrontmatter(rule cursorApplyRule, m pack.Module) string {

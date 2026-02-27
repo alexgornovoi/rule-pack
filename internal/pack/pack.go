@@ -24,10 +24,10 @@ type RulePack struct {
 }
 
 type ModuleEntry struct {
-	ID        string   `json:"id"`
-	Path      string   `json:"path"`
-	Priority  int      `json:"priority"`
-	AppliesTo []string `json:"appliesTo,omitempty"`
+	ID        string      `json:"id"`
+	Path      string      `json:"path"`
+	Priority  int         `json:"priority"`
+	AppliesTo []string    `json:"appliesTo,omitempty"`
 	Apply     ApplyConfig `json:"apply,omitempty"`
 }
 
@@ -38,7 +38,7 @@ type ExportSelector struct {
 }
 
 type ApplyConfig struct {
-	Default *ApplyRule          `json:"default,omitempty"`
+	Default *ApplyRule           `json:"default,omitempty"`
 	Targets map[string]ApplyRule `json:"targets,omitempty"`
 }
 
@@ -185,11 +185,6 @@ func exportSelector(rp RulePack, name string) (ExportSelector, error) {
 	}
 	exp, ok := rp.Exports[name]
 	if !ok {
-		// Convenience fallback: if no named export exists, allow export-by-folder.
-		// Example: --export standards selects modules under modules/standards/.
-		if hasModulesInFolder(rp.Modules, name) {
-			return ExportSelector{Folders: []string{name}}, nil
-		}
 		return ExportSelector{}, fmt.Errorf("missing export %q in %s", name, rp.Name)
 	}
 	return exp, nil
@@ -243,16 +238,6 @@ func matchesAny(id string, patterns []string) bool {
 func intersects(values []string, want map[string]struct{}) bool {
 	for _, value := range values {
 		if _, ok := want[value]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func hasModulesInFolder(modules []ModuleEntry, folder string) bool {
-	folders := normalizeFolders([]string{folder})
-	for _, m := range modules {
-		if matchesAnyFolder(m.Path, folders) {
 			return true
 		}
 	}

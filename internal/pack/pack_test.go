@@ -86,7 +86,7 @@ func TestExpandLocalDependency_NamedExportAndHashDrift(t *testing.T) {
 	}
 }
 
-func TestExpandLocalDependency_ImplicitFolderExportFallback(t *testing.T) {
+func TestExpandLocalDependency_MissingNamedExportFails(t *testing.T) {
 	root := writeLocalPack(t, `{
   "specVersion": "0.1",
   "name": "local-pack",
@@ -103,15 +103,12 @@ func TestExpandLocalDependency_ImplicitFolderExportFallback(t *testing.T) {
 	writeFile(t, filepath.Join(root, "modules", "tasks", "setup.md"), "T\n")
 
 	dep := config.Dependency{Source: "local", Path: ".", Export: "standards"}
-	mods, _, err := ExpandLocalDependency(root, dep, "local")
-	if err != nil {
-		t.Fatalf("ExpandLocalDependency: %v", err)
+	_, _, err := ExpandLocalDependency(root, dep, "local")
+	if err == nil {
+		t.Fatalf("expected missing export error")
 	}
-	if len(mods) != 1 {
-		t.Fatalf("expected one selected module, got %d", len(mods))
-	}
-	if mods[0].ID != "standards.style" {
-		t.Fatalf("expected standards.style, got %s", mods[0].ID)
+	if err != nil && err.Error() != `missing export "standards" in local-pack` {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

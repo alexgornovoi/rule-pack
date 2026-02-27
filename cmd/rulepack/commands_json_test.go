@@ -50,7 +50,7 @@ func TestOutdatedCommandJSON(t *testing.T) {
 
 	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
 	var env jsonEnvelope
-	if err := runCmdJSON(t, projectDir, a.newOutdatedCmd(), &env); err != nil {
+	if err := runCmdJSON(t, projectDir, a.newDepsOutdatedCmd(), &env); err != nil {
 		t.Fatalf("outdated command failed: %v", err)
 	}
 	if env.Command != "outdated" {
@@ -108,12 +108,94 @@ func TestDepsListCommandJSON(t *testing.T) {
 	}
 }
 
+func TestBuildCommandJSON_RequiresYesOnCursorOverwriteCollision(t *testing.T) {
+	projectDir := t.TempDir()
+	sourceDir := createLocalSourcePackWithID(t, "python.base", "base rule\n")
+	relSource, _ := filepath.Rel(projectDir, sourceDir)
+	cfg := config.DefaultRuleset("proj")
+	cfg.Dependencies = []config.Dependency{
+		{Source: "local", Path: filepath.ToSlash(relSource), Export: "default"},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var installEnv jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsInstallCmd(), &installEnv); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+
+	collision := filepath.Join(projectDir, ".cursor", "rules", "100-python_base.mdc")
+	if err := os.MkdirAll(filepath.Dir(collision), 0o755); err != nil {
+		t.Fatalf("mkdir collision dir: %v", err)
+	}
+	if err := os.WriteFile(collision, []byte("manual rule\n"), 0o644); err != nil {
+		t.Fatalf("write collision file: %v", err)
+	}
+
+	var env jsonEnvelope
+	err := runCmdJSON(t, projectDir, a.newBuildCmd(), &env)
+	if err == nil {
+		t.Fatalf("expected build to fail without --yes on unmanaged overwrite collision")
+	}
+	if !strings.Contains(err.Error(), "rerun with --yes") {
+		t.Fatalf("unexpected build error: %v", err)
+	}
+	if err := runCmdJSON(t, projectDir, a.newBuildCmd(), &env, "--yes"); err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	var out buildOutput
+	if err := json.Unmarshal(env.Result, &out); err != nil {
+		t.Fatalf("unmarshal build output: %v", err)
+	}
+	if len(out.Warnings) != 1 {
+		t.Fatalf("expected one warning, got %#v", out.Warnings)
+	}
+	if !strings.Contains(out.Warnings[0], ".cursor/rules/100-python_base.mdc") {
+		t.Fatalf("unexpected warning: %s", out.Warnings[0])
+	}
+}
+
+func TestAddCommandJSON_RequiresYesWhenReplacingDependency(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "git", URI: "https://example.com/rules.git", Export: "default"},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "https://example.com/rules.git", "--export", "python")
+	if err == nil {
+		t.Fatalf("expected add to fail without --yes when replacing dependency")
+	}
+	if !strings.Contains(err.Error(), "rerun with --yes") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "https://example.com/rules.git", "--export", "python", "--yes"); err != nil {
+		t.Fatalf("add with --yes failed: %v", err)
+	}
+	var out addOutput
+	if err := json.Unmarshal(env.Result, &out); err != nil {
+		t.Fatalf("unmarshal add result: %v", err)
+	}
+	if out.Action != "replaced" {
+		t.Fatalf("expected replaced action, got %s", out.Action)
+	}
+}
+
 func TestAddCommandJSON_AutoInitWhenMissingRuleset(t *testing.T) {
 	projectDir := t.TempDir()
 
 	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
 	var env jsonEnvelope
-	if err := runCmdJSON(t, projectDir, a.newAddCmd(), &env, "https://example.com/rules.git", "--export", "python"); err != nil {
+	if err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "https://example.com/rules.git", "--export", "python"); err != nil {
 		t.Fatalf("add failed: %v", err)
 	}
 	if env.Command != "add" {
@@ -149,6 +231,118 @@ func TestAddCommandJSON_AutoInitWhenMissingRuleset(t *testing.T) {
 	}
 }
 
+func TestAddCommandJSON_LocalDependency(t *testing.T) {
+	projectDir := t.TempDir()
+	localPack := createLocalSourcePackWithID(t, "python.base", "python rule\n")
+	relLocal, err := filepath.Rel(projectDir, localPack)
+	if err != nil {
+		t.Fatalf("rel local: %v", err)
+	}
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "--local", relLocal, "--export", "python"); err != nil {
+		t.Fatalf("add local failed: %v", err)
+	}
+
+	var out addOutput
+	if err := json.Unmarshal(env.Result, &out); err != nil {
+		t.Fatalf("unmarshal add output: %v", err)
+	}
+	if out.Dependency.Source != "local" {
+		t.Fatalf("expected local source, got %#v", out.Dependency)
+	}
+	if out.Dependency.Path != filepath.ToSlash(relLocal) {
+		t.Fatalf("expected normalized path %q, got %q", filepath.ToSlash(relLocal), out.Dependency.Path)
+	}
+	if out.Dependency.Export != "python" {
+		t.Fatalf("expected export=python, got %#v", out.Dependency)
+	}
+}
+
+func TestAddCommandJSON_LocalReplacementRequiresYes(t *testing.T) {
+	projectDir := t.TempDir()
+	localPack := createLocalSourcePackWithID(t, "python.base", "python rule\n")
+	relLocal, err := filepath.Rel(projectDir, localPack)
+	if err != nil {
+		t.Fatalf("rel local: %v", err)
+	}
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "local", Path: filepath.ToSlash(relLocal), Export: "default"},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	err = runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "--local", relLocal, "--export", "python")
+	if err == nil {
+		t.Fatalf("expected local replacement to require --yes")
+	}
+	if !strings.Contains(err.Error(), "rerun with --yes") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "--local", relLocal, "--export", "python", "--yes"); err != nil {
+		t.Fatalf("add local with --yes failed: %v", err)
+	}
+}
+
+func TestAddCommandJSON_LocalValidation(t *testing.T) {
+	projectDir := t.TempDir()
+	localPack := createLocalSourcePackWithID(t, "python.base", "python rule\n")
+	relLocal, err := filepath.Rel(projectDir, localPack)
+	if err != nil {
+		t.Fatalf("rel local: %v", err)
+	}
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+
+	cases := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "missing source", args: []string{}, wantErr: "missing source: provide <git-url> or --local <path>"},
+		{name: "both source modes", args: []string{"https://example.com/rules.git", "--local", relLocal}, wantErr: "use either <git-url> or --local <path>, not both"},
+		{name: "local plus version", args: []string{"--local", relLocal, "--version", "^1.0.0"}, wantErr: "--version and --ref are only supported for git dependencies"},
+		{name: "local plus ref", args: []string{"--local", relLocal, "--ref", "main"}, wantErr: "--version and --ref are only supported for git dependencies"},
+		{name: "missing local path", args: []string{"--local", filepath.Join(projectDir, "missing-pack")}, wantErr: "local dependency path"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, tc.args...)
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestAddCommandJSON_LocalMissingRulepack(t *testing.T) {
+	projectDir := t.TempDir()
+	invalidLocal := filepath.Join(t.TempDir(), "rules")
+	if err := os.MkdirAll(invalidLocal, 0o755); err != nil {
+		t.Fatalf("mkdir invalid local: %v", err)
+	}
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "--local", invalidLocal)
+	if err == nil {
+		t.Fatalf("expected missing rulepack.json error")
+	}
+	if !strings.Contains(err.Error(), "local dependency missing rulepack.json") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRemoveCommandJSON(t *testing.T) {
 	projectDir := t.TempDir()
 	cfg := config.Ruleset{
@@ -166,7 +360,7 @@ func TestRemoveCommandJSON(t *testing.T) {
 
 	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
 	var env jsonEnvelope
-	if err := runCmdJSON(t, projectDir, a.newRemoveCmd(), &env, "1", "abc123__python__01"); err != nil {
+	if err := runCmdJSON(t, projectDir, a.newDepsRemoveCmd(), &env, "1", "abc123__python__01", "--yes"); err != nil {
 		t.Fatalf("remove failed: %v", err)
 	}
 	if env.Command != "remove" {
@@ -192,6 +386,29 @@ func TestRemoveCommandJSON(t *testing.T) {
 	}
 }
 
+func TestRemoveCommandJSON_RequiresYes(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "git", URI: "https://example.com/rules.git", Export: "default"},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	err := runCmdJSON(t, projectDir, a.newDepsRemoveCmd(), &env, "1")
+	if err == nil {
+		t.Fatalf("expected remove to fail without --yes")
+	}
+	if !strings.Contains(err.Error(), "rerun with --yes") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRemoveCommand_AmbiguousSelector(t *testing.T) {
 	projectDir := t.TempDir()
 	cfg := config.Ruleset{
@@ -208,12 +425,251 @@ func TestRemoveCommand_AmbiguousSelector(t *testing.T) {
 
 	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
 	var env jsonEnvelope
-	err := runCmdJSON(t, projectDir, a.newRemoveCmd(), &env, "https://example.com/rules.git")
+	err := runCmdJSON(t, projectDir, a.newDepsRemoveCmd(), &env, "https://example.com/rules.git")
 	if err == nil {
 		t.Fatalf("expected remove to fail for ambiguous selector")
 	}
 	if !strings.Contains(err.Error(), "matched multiple dependencies") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRootHasNoTopLevelDependencyLifecycleCommands(t *testing.T) {
+	a := &app{}
+	root := &cobra.Command{
+		Use: "rulepack",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			a.renderer = cliout.NewJSONRenderer()
+			return nil
+		},
+	}
+	root.AddCommand(a.newInitCmd())
+	root.AddCommand(a.newDepsCmd())
+	root.AddCommand(a.newBuildCmd())
+	root.AddCommand(a.newDoctorCmd())
+	root.AddCommand(a.newProfileCmd())
+	for _, name := range []string{"add", "install", "outdated", "remove"} {
+		if cmd, _, err := root.Find([]string{name}); err == nil && cmd != nil {
+			t.Fatalf("expected no top-level %s command", name)
+		}
+	}
+}
+
+func TestProfileSave_AllDependenciesDefaultJSON(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	projectDir := t.TempDir()
+
+	depA := createLocalSourcePackWithID(t, "alpha.base", "alpha v1\n")
+	depB := createLocalSourcePackWithID(t, "beta.base", "beta v1\n")
+	relA, _ := filepath.Rel(projectDir, depA)
+	relB, _ := filepath.Rel(projectDir, depB)
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "local", Path: filepath.ToSlash(relA), Export: "default"},
+			{Source: "local", Path: filepath.ToSlash(relB), Export: "default"},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var installEnv jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsInstallCmd(), &installEnv); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newProfileSaveCmd(), &env, "--alias", "combo"); err != nil {
+		t.Fatalf("profile save failed: %v", err)
+	}
+	var out profileSaveOutput
+	if err := json.Unmarshal(env.Result, &out); err != nil {
+		t.Fatalf("unmarshal profile save: %v", err)
+	}
+	if out.Scope != "all" || !out.Combined || out.SourceCount != 2 {
+		t.Fatalf("unexpected save scope output: %#v", out)
+	}
+	if out.Switched {
+		t.Fatalf("expected switched=false by default")
+	}
+	newCfg, err := config.LoadRuleset(filepath.Join(projectDir, config.RulesetFileName))
+	if err != nil {
+		t.Fatalf("load ruleset: %v", err)
+	}
+	if len(newCfg.Dependencies) != 2 || newCfg.Dependencies[0].Source != "local" {
+		t.Fatalf("expected dependencies unchanged, got %#v", newCfg.Dependencies)
+	}
+	meta, _, err := profilesvc.ResolveIDOrAlias(out.Profile.ID)
+	if err != nil {
+		t.Fatalf("resolve profile: %v", err)
+	}
+	if len(meta.Sources) != 2 {
+		t.Fatalf("expected combined profile sources, got %#v", meta.Sources)
+	}
+}
+
+func TestProfileSave_RequiresAliasInNonInteractiveMode(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	projectDir := t.TempDir()
+	depA := createLocalSourcePackWithID(t, "alpha.base", "alpha v1\n")
+	relA, _ := filepath.Rel(projectDir, depA)
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "local", Path: filepath.ToSlash(relA), Export: "default"},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var installEnv jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsInstallCmd(), &installEnv); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+	var env jsonEnvelope
+	err := runCmdJSON(t, projectDir, a.newProfileSaveCmd(), &env)
+	if err == nil {
+		t.Fatalf("expected alias requirement error")
+	}
+	if !strings.Contains(err.Error(), "requires --alias in non-interactive mode") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestProfileRefresh_BestEffortCombinedJSON(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	sourceDir := createLocalSourcePackWithID(t, "alpha.base", "alpha new\n")
+	missingDir := filepath.Join(t.TempDir(), "missing")
+
+	modules := []pack.Module{
+		{PackName: "snapshot", PackVersion: "1.0.0", Commit: "profile", ID: "alpha.base", Priority: 100, Content: "alpha old\n"},
+		{PackName: "snapshot", PackVersion: "1.0.0", Commit: "profile", ID: "beta.base", Priority: 110, Content: "beta old\n"},
+	}
+	meta, err := profilesvc.SaveSnapshot(profilesvc.SaveInput{
+		Alias: "combo",
+		Sources: []profilesvc.SourceSnapshot{
+			{SourceType: "local", SourceRef: sourceDir, SourceExport: "default", ModuleIDs: []string{"alpha.base"}, Provenance: map[string]string{"path": sourceDir}},
+			{SourceType: "local", SourceRef: missingDir, SourceExport: "default", ModuleIDs: []string{"beta.base"}, Provenance: map[string]string{"path": missingDir}},
+		},
+		ContentHash: profilesvc.ComputeContentHash(modules, "default"),
+		Modules:     modules,
+	})
+	if err != nil {
+		t.Fatalf("save combined profile: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newProfileRefreshCmd(), &env, meta.ID, "--dry-run"); err != nil {
+		t.Fatalf("profile refresh failed: %v", err)
+	}
+	var out profileRefreshOutput
+	if err := json.Unmarshal(env.Result, &out); err != nil {
+		t.Fatalf("unmarshal profile refresh: %v", err)
+	}
+	if len(out.RefreshedSources) != 1 || len(out.SkippedSources) != 1 {
+		t.Fatalf("expected best-effort source statuses, got %#v", out)
+	}
+	if len(out.ChangedModules) == 0 || out.ChangedModules[0] != "alpha.base" {
+		t.Fatalf("expected alpha.base to change, got %#v", out.ChangedModules)
+	}
+}
+
+func TestProfileRefreshJSON_RequiresYesForInPlaceChanges(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	sourceDir := createLocalSourcePack(t, "new content\n")
+	savedMeta := createSavedProfile(t, sourceDir, "old content\n")
+	projectDir := t.TempDir()
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	err := runCmdJSON(t, projectDir, a.newProfileRefreshCmd(), &env, savedMeta.ID)
+	if err == nil {
+		t.Fatalf("expected in-place refresh to fail without --yes")
+	}
+	if !strings.Contains(err.Error(), "rerun with --yes") {
+		t.Fatalf("unexpected refresh error: %v", err)
+	}
+	if err := runCmdJSON(t, projectDir, a.newProfileRefreshCmd(), &env, savedMeta.ID, "--yes"); err != nil {
+		t.Fatalf("refresh with --yes failed: %v", err)
+	}
+}
+
+func TestProfileRemoveCommandsJSON(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	sourceDir := createLocalSourcePack(t, "content\n")
+	meta := createSavedProfile(t, sourceDir, "snapshot\n")
+	projectDir := t.TempDir()
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+
+	// single remove by alias
+	{
+		var env jsonEnvelope
+		if err := runCmdJSON(t, projectDir, a.newProfileRemoveCmd(), &env, "python-a", "--yes"); err != nil {
+			t.Fatalf("profile remove by alias failed: %v", err)
+		}
+		var out profileRemoveOutput
+		if err := json.Unmarshal(env.Result, &out); err != nil {
+			t.Fatalf("unmarshal profile remove output: %v", err)
+		}
+		if !out.Removed || out.ProfileID != meta.ID {
+			t.Fatalf("unexpected profile remove output: %#v", out)
+		}
+	}
+
+	// re-create two profiles and remove all
+	_ = createSavedProfile(t, sourceDir, "snapshot2\n")
+	mods := []pack.Module{{ID: "python.extra", Priority: 100, Content: "x\n", Commit: "local", PackName: "source-pack", PackVersion: "1.0.0"}}
+	_, err := profilesvc.SaveSnapshot(profilesvc.SaveInput{
+		Alias: "python-b",
+		Sources: []profilesvc.SourceSnapshot{{
+			SourceType:   "local",
+			SourceRef:    sourceDir,
+			SourceExport: "default",
+			ModuleIDs:    []string{"python.extra"},
+			Provenance:   map[string]string{"path": sourceDir},
+		}},
+		ContentHash: profilesvc.ComputeContentHash(mods, "default"),
+		Modules:     mods,
+	})
+	if err != nil {
+		t.Fatalf("save second profile: %v", err)
+	}
+	{
+		var env jsonEnvelope
+		if err := runCmdJSON(t, projectDir, a.newProfileRemoveCmd(), &env, "--all", "--yes"); err != nil {
+			t.Fatalf("profile remove --all failed: %v", err)
+		}
+		var out profileRemoveOutput
+		if err := json.Unmarshal(env.Result, &out); err != nil {
+			t.Fatalf("unmarshal profile remove all output: %v", err)
+		}
+		if out.Count < 2 {
+			t.Fatalf("expected at least 2 profiles removed, got %#v", out)
+		}
+	}
+
+	// --all without --yes in non-interactive mode should fail
+	{
+		var env jsonEnvelope
+		err := runCmdJSON(t, projectDir, a.newProfileRemoveCmd(), &env, "--all")
+		if err == nil {
+			t.Fatalf("expected non-interactive confirmation error")
+		}
+		if !strings.Contains(err.Error(), "requires --yes in non-interactive mode") {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	}
 }
 
@@ -307,6 +763,29 @@ func TestProfileCommandsJSON(t *testing.T) {
 		}
 	}
 
+	// deps add should still allow composition after profile use
+	{
+		var env jsonEnvelope
+		localPack := createLocalSourcePackWithID(t, "ml.base", "ml rule\n")
+		relLocal, err := filepath.Rel(projectDir, localPack)
+		if err != nil {
+			t.Fatalf("rel local: %v", err)
+		}
+		if err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "--local", relLocal, "--export", "default"); err != nil {
+			t.Fatalf("deps add local after profile use failed: %v", err)
+		}
+		newCfg, err := config.LoadRuleset(filepath.Join(projectDir, config.RulesetFileName))
+		if err != nil {
+			t.Fatalf("load ruleset after deps add: %v", err)
+		}
+		if len(newCfg.Dependencies) != 2 {
+			t.Fatalf("expected profile+local composition, got %#v", newCfg.Dependencies)
+		}
+		if newCfg.Dependencies[0].Source != profilesvc.ProfileSource || newCfg.Dependencies[1].Source != "local" {
+			t.Fatalf("unexpected composed dependencies: %#v", newCfg.Dependencies)
+		}
+	}
+
 	// profile diff should detect changed module content from source
 	{
 		var env jsonEnvelope
@@ -341,6 +820,54 @@ func TestProfileCommandsJSON(t *testing.T) {
 		}
 		if metaAfter.ContentHash != oldHash {
 			t.Fatalf("dry-run changed content hash: old=%s new=%s", oldHash, metaAfter.ContentHash)
+		}
+	}
+}
+
+func TestLegacyProfileFormatHardFails(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	profileRoot := filepath.Join(homeDir, ".rulepack", "profiles", "legacy123")
+	if err := os.MkdirAll(profileRoot, 0o755); err != nil {
+		t.Fatalf("mkdir legacy profile: %v", err)
+	}
+	legacyMeta := `{
+  "id": "legacy123",
+  "alias": "legacy",
+  "sourceType": "local",
+  "sourceRef": "/tmp/old",
+  "sourceExport": "default",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "contentHash": "deadbeef",
+  "moduleCount": 1
+}`
+	if err := os.WriteFile(filepath.Join(profileRoot, "profile.json"), []byte(legacyMeta), 0o644); err != nil {
+		t.Fatalf("write legacy profile.json: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	cfg := config.Ruleset{SpecVersion: "0.1", Name: "proj"}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	for _, run := range []func() error{
+		func() error { return runCmdJSON(t, projectDir, a.newProfileShowCmd(), &env, "legacy123") },
+		func() error { return runCmdJSON(t, projectDir, a.newProfileShowCmd(), &env, "legacy") },
+		func() error { return runCmdJSON(t, projectDir, a.newProfileUseCmd(), &env, "legacy123") },
+		func() error { return runCmdJSON(t, projectDir, a.newProfileDiffCmd(), &env, "legacy123") },
+		func() error {
+			return runCmdJSON(t, projectDir, a.newProfileRefreshCmd(), &env, "legacy123", "--dry-run")
+		},
+	} {
+		err := run()
+		if err == nil {
+			t.Fatalf("expected legacy profile to fail")
+		}
+		if !strings.Contains(err.Error(), "unsupported profile format: missing sources; re-save profile with current CLI") {
+			t.Fatalf("unexpected legacy error: %v", err)
 		}
 	}
 }
@@ -385,9 +912,14 @@ func captureStdout(fn func() error) ([]byte, error) {
 }
 
 func createLocalSourcePack(t *testing.T, moduleContent string) string {
+	return createLocalSourcePackWithID(t, "python.base", moduleContent)
+}
+
+func createLocalSourcePackWithID(t *testing.T, moduleID string, moduleContent string) string {
 	t.Helper()
 	root := t.TempDir()
-	modulePath := filepath.Join(root, "modules", "python.md")
+	moduleName := strings.ReplaceAll(moduleID, ".", "_")
+	modulePath := filepath.Join(root, "modules", moduleName+".md")
 	if err := os.MkdirAll(filepath.Dir(modulePath), 0o755); err != nil {
 		t.Fatalf("mkdir source modules: %v", err)
 	}
@@ -399,11 +931,11 @@ func createLocalSourcePack(t *testing.T, moduleContent string) string {
   "name": "source-pack",
   "version": "1.0.0",
   "modules": [
-    { "id": "python.base", "path": "modules/python.md", "priority": 100 }
+    { "id": "` + moduleID + `", "path": "modules/` + moduleName + `.md", "priority": 100 }
   ],
   "exports": {
     "default": {
-      "include": ["python.*"]
+      "include": ["` + moduleID + `"]
     }
   }
 }`
@@ -427,13 +959,16 @@ func createSavedProfile(t *testing.T, sourceDir string, snapshotContent string) 
 	}
 	hash := profilesvc.ComputeContentHash(modules, "default")
 	meta, err := profilesvc.SaveSnapshot(profilesvc.SaveInput{
-		Alias:        "python-a",
-		SourceType:   "local",
-		SourceRef:    sourceDir,
-		SourceExport: "default",
-		ContentHash:  hash,
-		Modules:      modules,
-		Provenance:   map[string]string{"path": sourceDir},
+		Alias: "python-a",
+		Sources: []profilesvc.SourceSnapshot{{
+			SourceType:   "local",
+			SourceRef:    sourceDir,
+			SourceExport: "default",
+			ModuleIDs:    []string{"python.base"},
+			Provenance:   map[string]string{"path": sourceDir},
+		}},
+		ContentHash: hash,
+		Modules:     modules,
 	})
 	if err != nil {
 		t.Fatalf("save profile snapshot: %v", err)

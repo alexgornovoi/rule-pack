@@ -57,12 +57,25 @@ type buildTargetRow struct {
 type buildOutput struct {
 	ModuleCount int              `json:"moduleCount"`
 	Targets     []buildTargetRow `json:"targets"`
+	Warnings    []string         `json:"warnings,omitempty"`
 }
 
 type profileSaveOutput struct {
 	Profile         profilesvc.Metadata `json:"profile"`
 	Switched        bool                `json:"switched"`
 	DependencyIndex int                 `json:"dependencyIndex"`
+	Scope           string              `json:"scope"`
+	SourceCount     int                 `json:"sourceCount"`
+	Combined        bool                `json:"combined"`
+}
+
+type sourceStatus struct {
+	Source string `json:"source"`
+}
+
+type sourceSkip struct {
+	Source string `json:"source"`
+	Reason string `json:"reason"`
 }
 
 type profileListOutput struct {
@@ -75,13 +88,33 @@ type profileUseOutput struct {
 	RulesetFile string `json:"rulesetFile"`
 }
 
+type profileRemoveRow struct {
+	ProfileID string `json:"profileId"`
+	Alias     string `json:"alias,omitempty"`
+	Path      string `json:"path"`
+}
+
+type profileRemoveOutput struct {
+	ProfileID       string             `json:"profileId,omitempty"`
+	Alias           string             `json:"alias,omitempty"`
+	Path            string             `json:"path,omitempty"`
+	Removed         bool               `json:"removed,omitempty"`
+	RemovedProfiles []profileRemoveRow `json:"removedProfiles,omitempty"`
+	Count           int                `json:"count"`
+}
+
 type profileRefreshOutput struct {
-	OldProfileID  string   `json:"oldProfileId"`
-	NewProfileID  string   `json:"newProfileId"`
-	RefreshedRule []string `json:"refreshedRules,omitempty"`
-	Source        string   `json:"source"`
-	InPlace       bool     `json:"inPlace"`
-	DryRun        bool     `json:"dryRun,omitempty"`
+	OldProfileID     string         `json:"oldProfileId"`
+	NewProfileID     string         `json:"newProfileId"`
+	RefreshedRule    []string       `json:"refreshedRules,omitempty"`
+	Source           string         `json:"source"`
+	InPlace          bool           `json:"inPlace"`
+	DryRun           bool           `json:"dryRun,omitempty"`
+	RefreshedSources []sourceStatus `json:"refreshedSources,omitempty"`
+	SkippedSources   []sourceSkip   `json:"skippedSources,omitempty"`
+	ChangedModules   []string       `json:"changedModules,omitempty"`
+	AddedModules     []string       `json:"addedModules,omitempty"`
+	RemovedModules   []string       `json:"removedModules,omitempty"`
 }
 
 type depsListRow struct {
@@ -127,16 +160,18 @@ type outdatedOutput struct {
 }
 
 type profileDiffOutput struct {
-	ProfileID      string   `json:"profileId"`
-	SourceType     string   `json:"sourceType"`
-	SourceRef      string   `json:"sourceRef"`
-	CurrentHash    string   `json:"currentHash"`
-	FreshHash      string   `json:"freshHash"`
-	ChangedModules []string `json:"changedModules,omitempty"`
-	AddedModules   []string `json:"addedModules,omitempty"`
-	RemovedModules []string `json:"removedModules,omitempty"`
-	RuleSelectors  []string `json:"ruleSelectors,omitempty"`
-	UpdatedAt      string   `json:"updatedAt"`
+	ProfileID        string         `json:"profileId"`
+	SourceType       string         `json:"sourceType"`
+	SourceRef        string         `json:"sourceRef"`
+	CurrentHash      string         `json:"currentHash"`
+	FreshHash        string         `json:"freshHash"`
+	ChangedModules   []string       `json:"changedModules,omitempty"`
+	AddedModules     []string       `json:"addedModules,omitempty"`
+	RemovedModules   []string       `json:"removedModules,omitempty"`
+	RefreshedSources []sourceStatus `json:"refreshedSources,omitempty"`
+	SkippedSources   []sourceSkip   `json:"skippedSources,omitempty"`
+	RuleSelectors    []string       `json:"ruleSelectors,omitempty"`
+	UpdatedAt        string         `json:"updatedAt"`
 }
 
 func newOutdatedOutput(entries []outdatedEntry, outdatedCount int) outdatedOutput {
@@ -147,17 +182,35 @@ func newOutdatedOutput(entries []outdatedEntry, outdatedCount int) outdatedOutpu
 	}
 }
 
-func newProfileDiffOutput(profileID, sourceType, sourceRef, currentHash, freshHash string, changed, added, removed, selectors []string) profileDiffOutput {
+func newProfileDiffOutput(profileID, sourceType, sourceRef, currentHash, freshHash string, changed, added, removed []string, refreshed []sourceStatus, skipped []sourceSkip, selectors []string) profileDiffOutput {
 	return profileDiffOutput{
-		ProfileID:      profileID,
-		SourceType:     sourceType,
-		SourceRef:      sourceRef,
-		CurrentHash:    currentHash,
-		FreshHash:      freshHash,
-		ChangedModules: changed,
-		AddedModules:   added,
-		RemovedModules: removed,
-		RuleSelectors:  selectors,
-		UpdatedAt:      time.Now().UTC().Format(time.RFC3339),
+		ProfileID:        profileID,
+		SourceType:       sourceType,
+		SourceRef:        sourceRef,
+		CurrentHash:      currentHash,
+		FreshHash:        freshHash,
+		ChangedModules:   changed,
+		AddedModules:     added,
+		RemovedModules:   removed,
+		RefreshedSources: refreshed,
+		SkippedSources:   skipped,
+		RuleSelectors:    selectors,
+		UpdatedAt:        time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+func profileRemoveRows(profiles []profilesvc.Metadata, paths []string) []profileRemoveRow {
+	rows := make([]profileRemoveRow, 0, len(profiles))
+	for i, meta := range profiles {
+		path := ""
+		if i < len(paths) {
+			path = paths[i]
+		}
+		rows = append(rows, profileRemoveRow{
+			ProfileID: meta.ID,
+			Alias:     meta.Alias,
+			Path:      path,
+		})
+	}
+	return rows
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 
@@ -9,19 +10,12 @@ import (
 	"rulepack/internal/config"
 )
 
-func (a *app) newRemoveCmd() *cobra.Command {
-	return a.newDependencyRemoveCmd("remove <dep-selector> [dep-selector...]", "Remove one or more dependencies from rulepack.json")
-}
-
 func (a *app) newDepsRemoveCmd() *cobra.Command {
-	return a.newDependencyRemoveCmd("remove <dep-selector> [dep-selector...]", "Remove one or more dependencies from rulepack.json")
-}
-
-func (a *app) newDependencyRemoveCmd(use string, short string) *cobra.Command {
+	var yes bool
 	cmd := &cobra.Command{
-		Use:     use,
+		Use:     "remove <dep-selector> [dep-selector...]",
 		Aliases: []string{"uninstall"},
-		Short:   short,
+		Short:   "Remove one or more dependencies from rulepack.json",
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.LoadRuleset(config.RulesetFileName)
@@ -54,6 +48,22 @@ func (a *app) newDependencyRemoveCmd(use string, short string) *cobra.Command {
 				kept = append(kept, dep)
 			}
 			sort.Slice(removed, func(i, j int) bool { return removed[i].Index < removed[j].Index })
+			preview := make([]string, 0, len(removed))
+			for _, row := range removed {
+				preview = append(preview, fmt.Sprintf("#%d %s %s export=%s", row.Index, row.Source, row.Ref, row.Export))
+			}
+			if err := confirmRiskAction(
+				cmd,
+				a.jsonMode,
+				yes,
+				len(removed) > 0,
+				fmt.Sprintf("remove would delete %d dependency entries from %s", len(removed), config.RulesetFileName),
+				fmt.Sprintf("Remove %d dependency entries from %s?", len(removed), config.RulesetFileName),
+				preview,
+				"remove",
+			); err != nil {
+				return err
+			}
 
 			cfg.Dependencies = kept
 			if err := config.SaveRuleset(config.RulesetFileName, cfg); err != nil {
@@ -87,5 +97,6 @@ func (a *app) newDependencyRemoveCmd(use string, short string) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm dependency removal without prompting")
 	return cmd
 }

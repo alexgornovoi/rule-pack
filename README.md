@@ -1,6 +1,7 @@
 # rulepack
 
-`rulepack` is a Go CLI that composes instruction modules from Git-based rule packs and builds target-specific outputs for tools like Cursor, GitHub Copilot, and Codex.
+`rulepack` is a CLI for reusing AI agent rules across projects.
+It lets you pull rules from git or local sources, lock them for reproducibility, build tool-specific outputs, and save reusable local profile snapshots.
 
 [![Release](https://img.shields.io/github/v/release/alexgornovoi/rule-pack)](https://github.com/alexgornovoi/rule-pack/releases)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/alexgornovoi/rule-pack)](https://github.com/alexgornovoi/rule-pack/blob/main/go.mod)
@@ -9,26 +10,30 @@
 
 ## Table of Contents
 
-- [What it does](#what-it-does)
+- [Why Rulepack](#why-rulepack)
 - [Install](#install)
+- [Basic Usage](#basic-usage)
+- [Commands](#commands)
+- [Advanced Usage](#advanced-usage)
 - [Build From Source (Go)](#build-from-source-go)
 - [Output modes](#output-modes)
-- [Quick start](#quick-start)
-- [Example user flows](#example-user-flows)
-- [Commands](#commands)
 - [Dependency resolution details](#dependency-resolution-details)
 - [Output behavior](#output-behavior)
 - [File reference](#file-reference)
 - [Contributors](#contributors)
 
-## What it does
+## Why Rulepack
 
-- Resolves dependencies from Git URLs.
-- Resolves dependencies from local filesystem rule packs.
-- Pins each dependency in `rulepack.lock.json` (Git commit or local content hash).
-- Loads `rulepack.json` from each dependency and expands selected modules.
-- Applies local overrides (currently priority overrides).
-- Produces deterministic, sorted output for configured targets.
+- Reuse one shared rules library across many projects.
+- Keep outputs deterministic with lockfiles.
+- Build rules for Cursor, Copilot, and Codex from the same source.
+- Save the current stack as a local profile and reuse it later, even if original sources disappear.
+
+Typical use cases:
+
+- Team-level rule pack in git, consumed by many repos.
+- Personal local rule folders while iterating on prompts/rules.
+- Snapshotting a "known-good" rules setup as a profile before starting a new project.
 
 ## Install
 
@@ -51,6 +56,305 @@ brew install --cask alexgornovoi/homebrew-tap/rulepack
 sudo add-apt-repository ppa:alexgornovoi/rulepack
 sudo apt update
 sudo apt install rulepack
+```
+
+## Basic Usage
+
+Start a new project, add rules, lock dependencies, and build outputs:
+
+```bash
+rulepack init --name my-project
+rulepack deps add https://github.com/your-org/your-rules.git
+rulepack deps install
+rulepack build
+```
+
+### Example A: Python-only rules
+
+```bash
+rulepack init --name my-python-project
+rulepack deps add https://github.com/your-org/your-rules.git --export python
+rulepack deps install
+rulepack build
+```
+
+### Example B: Python + ML rules from one repo
+
+```bash
+rulepack init --name my-ml-project
+rulepack deps add https://github.com/your-org/your-rules.git --export python
+rulepack deps add https://github.com/your-org/your-rules.git --export ml
+rulepack deps install
+rulepack build
+```
+
+`https://github.com/your-org/your-rules.git` is an example source. Replace it with your own rules repository URL.
+
+If `--export` is omitted, Rulepack uses `exports.default` if present. If no `exports.default` exists, Rulepack implicitly selects all modules (`include: ["**"]`).
+
+Optional variants:
+
+```bash
+# Pin a ref directly (commit/tag/branch)
+rulepack deps add https://github.com/your-org/your-rules.git --ref v1.2.3
+
+# Use a local rules repo
+rulepack deps add --local ../my-rules --export python
+rulepack deps install
+rulepack build
+
+# Optional: build only one target
+rulepack build --target codex
+```
+
+## Commands
+
+Global flags:
+
+- `--json`: emit machine-readable JSON output. Default: `false` (human output).
+- `--no-color`: disable ANSI colors in human output. Default: `false` (color enabled).
+
+### `init`
+
+Creates a starter `rulepack.json` with default targets.
+
+Flags:
+
+- `--name <name>`: set project/rulepack name.
+  Default: current directory basename.
+- `--template <template>`: scaffold template files. Supported value: `rulepack`.
+  Default: empty (no template scaffold files).
+
+### `deps add [git-url]`
+
+Adds or replaces a dependency in `rulepack.json`.
+Supported forms:
+
+- `rulepack deps add <git-url>`
+- `rulepack deps add --local <path>`
+
+Flags:
+
+- `--export <name>`: export name to select from dependency pack.
+  Default: empty (Rulepack uses export fallback resolution).
+- `--version <constraint>`: semver tag constraint.
+  Default: empty.
+- `--ref <ref>`: commit/tag/branch reference.
+  Default: empty.
+- `--local <path>`: local rulepack directory path.
+  Default: empty (git mode).
+- `--yes`: confirm risky dependency replacement without prompting.
+  Default: `false`.
+
+Notes:
+
+- `--version` and `--ref` are mutually exclusive.
+- `--version` and `--ref` are git-only flags and cannot be used with `--local`.
+- If `--export` is not set: use `exports.default` when present; otherwise all modules (`include: ["**"]`).
+- If neither `--version` nor `--ref` is set, dependency resolution uses `HEAD` during `rulepack deps install`.
+- If `rulepack.json` is missing, `deps add` auto-initializes a default config first.
+- Replacement (`add` against existing dependency URI/path) requires `--yes` in non-interactive or `--json` mode.
+
+### `deps list`
+
+Lists configured dependencies and lock status.
+
+Flags:
+
+- `--yes`: confirm dependency removal without prompting.
+  Default: `false`.
+
+### `deps remove <dep-selector> [dep-selector...]`
+
+Removes one or more dependencies from `rulepack.json`.
+Selectors accept:
+
+- 1-based index (`1`)
+- exact dependency reference (`uri`, `path`, or `profile id`)
+
+Flags:
+
+- none
+
+Notes:
+
+- Alias: `rulepack deps uninstall ...`
+- Non-interactive or `--json` mode requires `--yes`.
+- After removal, run:
+
+```bash
+rulepack deps install
+rulepack build
+```
+
+### `deps install`
+
+Resolves dependencies and writes `rulepack.lock.json`.
+
+Flags:
+
+- none
+
+### `deps outdated`
+
+Checks whether git dependencies have newer resolvable revisions.
+
+Flags:
+
+- none
+
+### `build`
+
+Builds target outputs from locked dependencies.
+
+Flags:
+
+- `--target <target>`: `cursor|copilot|codex|all`.
+  Default: `all`.
+- `--yes`: confirm unmanaged cursor overwrite collisions without prompting.
+  Default: `false`.
+
+Notes:
+
+- If unmanaged cursor output collisions are detected, non-interactive or `--json` mode requires `--yes`.
+
+### `doctor`
+
+Runs diagnostics for config, lockfile, git client, and profile store.
+
+Flags:
+
+- none
+
+### `profile save`
+
+Saves dependencies as a reusable local profile snapshot.
+
+Flags:
+
+- `--alias <name>`: required in non-interactive mode; interactive prompts if omitted.
+  Default: empty.
+- `--dep <selector>`: save only one dependency instead of all.
+  Default: empty (save all dependencies).
+- `--switch`: replace project dependencies with the saved profile dependency.
+  Default: `false` (leave project dependencies unchanged).
+
+### `profile list`
+
+Lists saved profiles from global store.
+
+Flags:
+
+- none
+
+### `profile show <profile-id-or-alias>`
+
+Shows metadata/details for one saved profile.
+
+Flags:
+
+- none
+
+### `profile use <profile-id-or-alias>`
+
+Adds/updates project dependency to use a saved profile.
+This does not block adding other dependencies later; profile and non-profile dependencies can be composed.
+
+Flags:
+
+- none
+
+### `profile remove <profile-id-or-alias>`
+
+Deletes one saved profile.
+
+Flags:
+
+- `--yes`: skip interactive confirmation.
+  Default: `false`.
+- `--all`: remove all saved profiles (takes no positional arg).
+  Default: `false`.
+
+Notes:
+
+- Alias: `rulepack profile delete ...`
+- Non-interactive mode requires `--yes`.
+
+### `profile diff <profile-id-or-alias>`
+
+Compares profile snapshot modules with current source state.
+
+Flags:
+
+- `--rule <pattern>` (repeatable): limit comparison to specific module IDs/patterns.
+  Default: none (compare all modules).
+
+### `profile refresh <profile-id-or-alias>`
+
+Refreshes profile snapshot from current source state.
+
+Flags:
+
+- `--new-id`: write refreshed snapshot to a new profile ID.
+  Default: `false` (refresh in place).
+- `--rule <pattern>` (repeatable): refresh only selected module IDs/patterns.
+  Default: none (refresh all modules).
+- `--dry-run`: preview without writing profile files.
+  Default: `false` (writes snapshot updates).
+- `--yes`: confirm risky in-place refresh updates without prompting.
+  Default: `false`.
+
+Notes:
+
+- In-place refreshes with module diffs require `--yes` in non-interactive or `--json` mode.
+
+## Advanced Usage
+
+### 1) Save a profile once and reuse it everywhere
+
+```bash
+# in project A
+rulepack profile save --alias python-a
+
+# in project B
+rulepack init --name project-b
+rulepack profile use python-a
+rulepack deps install
+rulepack build
+```
+
+### 2) Use local rules while authoring
+
+```bash
+rulepack init --name my-project --template rulepack
+rulepack deps install
+rulepack build
+```
+
+### 3) Refresh a saved profile from source changes
+
+```bash
+# default: update existing profile in place
+rulepack profile refresh python-a
+
+# create a new profile id instead of updating in place
+rulepack profile refresh python-a --new-id
+
+# refresh only specific rules/modules
+rulepack profile refresh python-a --rule python.* --rule ml.safety
+```
+
+### 4) Check for upstream updates before reinstalling
+
+```bash
+rulepack deps outdated
+```
+
+### 5) Preview what changed in a saved profile source
+
+```bash
+rulepack profile diff python-a
+rulepack profile diff python-a --rule python.* --rule ml.*
 ```
 
 ## Build From Source (Go)
@@ -80,376 +384,9 @@ Examples:
 
 ```bash
 rulepack profile list
-rulepack install --json
+rulepack deps install --json
 rulepack build --no-color
 ```
-
-## Quick start
-
-Initialize a project:
-
-```bash
-rulepack init --name my-rules
-
-# or scaffold a built-in "rules for writing rules" local pack
-rulepack init --name my-rules --template rulepack
-```
-
-Add a dependency:
-
-```bash
-# Track a semver range
-rulepack add https://github.com/org/rulepack.git --version "^1.2.0"
-
-# Or pin a ref directly (commit/tag/branch)
-rulepack add https://github.com/org/rulepack.git --ref v1.2.3
-```
-
-Resolve and lock:
-
-```bash
-rulepack install
-```
-
-Build outputs:
-
-```bash
-# all targets (default)
-rulepack build
-
-# single target
-rulepack build --target codex
-```
-
-## Example user flows
-
-### 1) Start a new project with shared rules
-
-```bash
-cd personal-website
-# optional: rulepack init --name personal-website
-rulepack add https://github.com/person-a/rules.git --export python
-rulepack install
-rulepack build
-```
-
-### 2) Save a profile once and reuse it everywhere
-
-```bash
-# in project A
-rulepack profile save --dep 1 --alias python-a
-
-# in project B
-rulepack init --name project-b
-rulepack profile use python-a
-rulepack install
-rulepack build
-```
-
-### 3) Use local rules while authoring
-
-```bash
-rulepack init --name my-project --template rulepack
-rulepack install
-rulepack build
-```
-
-### 4) Refresh a saved profile from source changes
-
-```bash
-# default: update existing profile in place
-rulepack profile refresh python-a
-
-# create a new profile id instead of updating in place
-rulepack profile refresh python-a --new-id
-
-# refresh only specific rules/modules
-rulepack profile refresh python-a --rule python.* --rule ml.safety
-```
-
-### 5) Check for upstream updates before reinstalling
-
-```bash
-rulepack outdated
-```
-
-### 6) Preview what changed in a saved profile source
-
-```bash
-rulepack profile diff python-a
-rulepack profile diff python-a --rule python.* --rule ml.*
-```
-
-## Commands
-
-### `deps list`
-
-List dependencies currently configured in `rulepack.json`, including lock status:
-
-```bash
-rulepack deps list
-```
-
-### `doctor`
-
-Run quick diagnostics for project and environment health:
-
-```bash
-rulepack doctor
-```
-
-### `init`
-
-Creates a starter `rulepack.json` with default targets:
-
-- `cursor` -> `.cursor/rules` (`perModule: true`, extension `.mdc`)
-- `copilot` -> `.github/copilot-instructions.md`
-- `codex` -> `.codex/rules.md`
-
-Flags:
-
-- `--name <name>`: set rulepack name (defaults to current directory name).
-- `--template rulepack`: scaffold `.rulepack/packs/rule-authoring` and add it as a local dependency.
-
-### `add <git-url>`
-
-Adds or replaces a dependency by URI in `rulepack.json`.
-If `rulepack.json` does not exist in the current directory, `add` creates a default one automatically first.
-
-Flags:
-
-- `--export <name>`: choose a named export from `rulepack.json`.
-- `--version <constraint>`: semver constraint (uses repo tags).
-- `--ref <ref>`: commit/tag/branch.
-
-`--version` and `--ref` are mutually exclusive.
-
-### `remove <dep-selector> [dep-selector...]`
-
-Removes one or more dependencies from `rulepack.json`.
-Selectors can be 1-based index (`1`) or exact dependency reference (`uri`, `path`, or `profile id`).
-This command updates only `rulepack.json`; run `rulepack install` afterward to refresh `rulepack.lock.json`.
-
-```bash
-rulepack remove 1
-rulepack remove https://github.com/org/rules.git
-rulepack remove 1 b4f97d30f0aa__python__2f9baf1a
-```
-
-`remove` also supports alias `uninstall`, and is available under `deps` as `rulepack deps remove ...` (or `rulepack deps uninstall ...`).
-
-### `deps remove <dep-selector> [dep-selector...]`
-
-Equivalent to top-level `remove`, but namespaced under `deps`:
-
-```bash
-rulepack deps remove 2
-rulepack deps uninstall https://github.com/org/rules.git
-```
-
-### Local dependencies
-
-You can also define dependencies directly in `rulepack.json` with `source: "local"` and a `path`:
-
-```json
-{
-  "dependencies": [
-    {
-      "source": "local",
-      "path": "../my-local-pack",
-      "export": "default"
-    }
-  ]
-}
-```
-
-Rules:
-
-- `local` dependencies require `path`.
-- `local` dependencies do not allow `uri`, `version`, or `ref`.
-- Relative `path` values are resolved from the directory containing `rulepack.json`.
-- `rulepack install` stores a `contentHash` in `rulepack.lock.json`.
-- `rulepack build` recomputes the hash and fails with `local dependency changed; run rulepack install` if local content drifted.
-
-### Apply modes (extensible targeting)
-
-Modules in a source pack can define target-agnostic apply metadata and target-specific overrides.  
-Cursor currently supports mapping of these modes into `.mdc` frontmatter:
-
-- `always`
-- `never`
-- `agent`
-- `glob`
-- `manual`
-
-Example module entry in a source `rulepack.json`:
-
-```json
-{
-  "id": "python.ml",
-  "path": "modules/python/ml.md",
-  "priority": 120,
-  "apply": {
-    "default": { "mode": "agent", "description": "Apply when ML patterns are relevant" },
-    "targets": {
-      "cursor": { "mode": "glob", "globs": ["**/*.py"], "description": "Python files" }
-    }
-  }
-}
-```
-
-### `install`
-
-For each dependency:
-
-- Mirrors/fetches the repository in cache.
-- Resolves commit from `ref`, `version`, or `HEAD`.
-- Validates expansion by reading `rulepack.json` and selected module files.
-- Writes `rulepack.lock.json` with resolved commit and metadata.
-
-### `build`
-
-- Requires both `rulepack.json` and `rulepack.lock.json`.
-- Requires lockfile order/URIs to match dependency list exactly.
-- Expands modules at locked commits.
-- Applies overrides, checks duplicate IDs, sorts by priority then ID.
-- Writes target output(s).
-
-Flag:
-
-- `--target cursor|copilot|codex|all` (default `all`)
-
-### `outdated`
-
-Checks each dependency against the latest resolvable revision:
-
-- For `git` dependencies: compares lockfile commit vs current resolved commit (`ref`, `version`, or `HEAD`).
-- For `local` and `profile` dependencies: reported as `n/a` (no upstream check).
-
-```bash
-rulepack outdated
-rulepack outdated --json
-```
-
-### `profile save`
-
-Save one installed dependency as a globally reusable snapshot profile:
-
-```bash
-rulepack profile save --dep 1 --alias python-a
-```
-
-By default, this also switches the selected dependency to `source: "profile"` and refreshes lockfile.
-
-### `profile list`
-
-List globally saved profiles:
-
-```bash
-rulepack profile list
-```
-
-### `profile show`
-
-Inspect one saved profile in detail:
-
-```bash
-rulepack profile show python-a
-```
-
-Sample human table (shape):
-
-```text
-Saved Profiles
-
-Profiles
-| Profile ID                 | Alias    | Source                         | Export | Modules | Created              |
-|---------------------------|----------|--------------------------------|--------|---------|----------------------|
-| b4f97d30f0aa__python__... | python-a | https://github.com/person/a... | python | 12      | 2026-02-27T10:00:00Z |
-```
-
-### `profile use`
-
-Add/update current project to use a saved profile by ID or alias:
-
-```bash
-rulepack profile use python-a
-```
-
-### `profile refresh`
-
-Refresh a saved profile from its original source.
-
-Default behavior updates the existing profile in place:
-
-```bash
-rulepack profile refresh python-a
-```
-
-Create a new profile ID instead:
-
-```bash
-rulepack profile refresh python-a --new-id
-```
-
-Refresh only specific rules/modules by ID or pattern:
-
-```bash
-rulepack profile refresh python-a --rule python.* --rule ml.safety
-```
-
-Preview refresh changes without writing profile files:
-
-```bash
-rulepack profile refresh python-a --rule python.* --dry-run
-```
-
-### `profile diff`
-
-Compare a saved profile snapshot to its source without writing anything:
-
-```bash
-rulepack profile diff python-a
-rulepack profile diff python-a --rule python.* --rule ml.*
-```
-
-Saved profiles are stored globally under `~/.rulepack/profiles/<profile-id>`, so they can be reused across projects.
-If two different repos both have a `python` export, they save as distinct profile IDs because source identity is part of profile ID generation.
-
-Sample JSON output:
-
-```json
-{
-  "command": "install",
-  "result": {
-    "lockFile": "rulepack.lock.json",
-    "resolved": [
-      {
-        "index": 1,
-        "source": "git",
-        "ref": "https://github.com/person-a/rules.git",
-        "export": "python",
-        "resolved": "^1.2.0",
-        "hash": "ab12cd34ef56"
-      }
-    ],
-    "counts": {
-      "git": 1,
-      "local": 0,
-      "profile": 0
-    }
-  }
-}
-```
-
-### `profile` CI flow
-
-```bash
-rulepack install --json
-rulepack build --json
-```
-
-Use JSON mode in automation; use default human mode for local development.
 
 ## Dependency resolution details
 

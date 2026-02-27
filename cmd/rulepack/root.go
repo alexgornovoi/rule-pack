@@ -36,11 +36,7 @@ func main() {
 	root.PersistentFlags().BoolVar(&a.noColor, "no-color", false, "disable color in human output")
 
 	root.AddCommand(a.newInitCmd())
-	root.AddCommand(a.newAddCmd())
-	root.AddCommand(a.newRemoveCmd())
 	root.AddCommand(a.newDepsCmd())
-	root.AddCommand(a.newInstallCmd())
-	root.AddCommand(a.newOutdatedCmd())
 	root.AddCommand(a.newBuildCmd())
 	root.AddCommand(a.newDoctorCmd())
 	root.AddCommand(a.newProfileCmd())

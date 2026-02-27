@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"rulepack/internal/cliout"
 	"rulepack/internal/config"
 	"rulepack/internal/git"
@@ -19,6 +23,7 @@ func (a *app) newProfileCmd() *cobra.Command {
 	root.AddCommand(a.newProfileSaveCmd())
 	root.AddCommand(a.newProfileListCmd())
 	root.AddCommand(a.newProfileShowCmd())
+	root.AddCommand(a.newProfileRemoveCmd())
 	root.AddCommand(a.newProfileUseCmd())
 	root.AddCommand(a.newProfileDiffCmd())
 	root.AddCommand(a.newProfileRefreshCmd())
@@ -31,7 +36,7 @@ func (a *app) newProfileSaveCmd() *cobra.Command {
 	var switchDependency bool
 	cmd := &cobra.Command{
 		Use:   "save",
-		Short: "Save a resolved dependency as a globally reusable profile snapshot",
+		Short: "Save dependencies as a globally reusable local profile snapshot",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.LoadRuleset(config.RulesetFileName)
 			if err != nil {
@@ -42,9 +47,9 @@ func (a *app) newProfileSaveCmd() *cobra.Command {
 				return err
 			}
 			if len(cfg.Dependencies) != len(lock.Resolved) {
-				return errors.New("cannot save profile: dependency not installed; run rulepack install")
+				return errors.New("cannot save profile: dependency not installed; run rulepack deps install")
 			}
-			idx, err := findDependencyIndex(cfg, depSelector)
+			resolvedAlias, err := resolveProfileAlias(cmd, alias)
 			if err != nil {
 				return err
 			}
@@ -57,29 +62,70 @@ func (a *app) newProfileSaveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := "all"
+			combined := true
+			sourceCount := len(cfg.Dependencies)
+			dependencyIndex := -1
+			updatedRows := [][]string{}
 
-			dep := cfg.Dependencies[idx]
-			locked := lock.Resolved[idx]
-			modules, contentHash, sourceRef, provenance, err := expandDependencyForSnapshot(cfgDir, gc, dep, locked)
-			if err != nil {
-				return err
+			var meta profilesvc.Metadata
+			if depSelector != "" {
+				scope = "dep"
+				combined = false
+				idx, err := findDependencyIndex(cfg, depSelector)
+				if err != nil {
+					return err
+				}
+				dependencyIndex = idx
+				sourceCount = 1
+				dep := cfg.Dependencies[idx]
+				locked := lock.Resolved[idx]
+				modules, contentHash, sourceRef, provenance, err := expandDependencyForSnapshot(cfgDir, gc, dep, locked)
+				if err != nil {
+					return err
+				}
+				meta, err = profilesvc.SaveSnapshot(profilesvc.SaveInput{
+					Alias: resolvedAlias,
+					Sources: []profilesvc.SourceSnapshot{{
+						SourceType:   dependencySource(dep),
+						SourceRef:    sourceRef,
+						SourceExport: dep.Export,
+						Provenance:   provenance,
+						ModuleIDs:    moduleIDs(modules),
+					}},
+					ContentHash: contentHash,
+					Modules:     modules,
+				})
+				if err != nil {
+					return err
+				}
+				if switchDependency {
+					cfg.Dependencies[idx] = config.Dependency{Source: profilesvc.ProfileSource, Profile: meta.ID, Export: "default"}
+					updatedRows = append(updatedRows, []string{strconv.Itoa(idx + 1), dependencyReference(dep), meta.ID})
+				}
+			} else {
+				modules, sources, err := collectSnapshotForAllDependencies(cfg, lock, cfgDir, gc)
+				if err != nil {
+					return err
+				}
+				contentHash := profilesvc.ComputeContentHash(modules, "default")
+				meta, err = profilesvc.SaveSnapshot(profilesvc.SaveInput{
+					Alias:       resolvedAlias,
+					Sources:     sources,
+					ContentHash: contentHash,
+					Modules:     modules,
+				})
+				if err != nil {
+					return err
+				}
+				if switchDependency {
+					for i, dep := range cfg.Dependencies {
+						updatedRows = append(updatedRows, []string{strconv.Itoa(i + 1), dependencyReference(dep), meta.ID})
+					}
+					cfg.Dependencies = []config.Dependency{{Source: profilesvc.ProfileSource, Profile: meta.ID, Export: "default"}}
+				}
 			}
-
-			meta, err := profilesvc.SaveSnapshot(profilesvc.SaveInput{
-				Alias:        alias,
-				SourceType:   dependencySource(dep),
-				SourceRef:    sourceRef,
-				SourceExport: dep.Export,
-				ContentHash:  contentHash,
-				Modules:      modules,
-				Provenance:   provenance,
-			})
-			if err != nil {
-				return err
-			}
-
 			if switchDependency {
-				cfg.Dependencies[idx] = config.Dependency{Source: profilesvc.ProfileSource, Profile: meta.ID, Export: "default"}
 				if err := config.SaveRuleset(config.RulesetFileName, cfg); err != nil {
 					return err
 				}
@@ -91,31 +137,63 @@ func (a *app) newProfileSaveCmd() *cobra.Command {
 					return err
 				}
 			}
-
-			out := profileSaveOutput{Profile: meta, Switched: switchDependency, DependencyIndex: idx}
+			out := profileSaveOutput{
+				Profile:         meta,
+				Switched:        switchDependency,
+				DependencyIndex: dependencyIndex,
+				Scope:           scope,
+				SourceCount:     sourceCount,
+				Combined:        combined,
+			}
 			if a.jsonMode {
 				return a.renderer.RenderJSON("profile.save", out)
 			}
-			rows := [][]string{{meta.ID, meta.Alias, meta.SourceRef, meta.SourceExport, strconv.Itoa(meta.ModuleCount), shortSHA(meta.ContentHash)}}
-			events := []cliout.Event{}
+			rows := [][]string{{meta.ID, meta.Alias, profileSourceSummary(meta), "default", strconv.Itoa(meta.ModuleCount), shortSHA(meta.ContentHash)}}
+			events := []cliout.Event{{Level: "info", Message: "Scope: " + scope}}
 			if switchDependency {
-				events = append(events, cliout.Event{Level: "info", Message: "Switched dependency to profile source and refreshed lockfile"})
+				events = append(events, cliout.Event{Level: "info", Message: "Switched dependencies to profile source and refreshed lockfile"})
+			}
+			tables := []cliout.Table{{Title: "Snapshot", Columns: []string{"Profile ID", "Alias", "Source", "Export", "Modules", "Content Hash"}, Rows: rows}}
+			if len(updatedRows) > 0 {
+				tables = append(tables, cliout.Table{Title: "Dependency Updates", Columns: []string{"#", "Old Ref", "Profile ID"}, Rows: updatedRows})
 			}
 			a.renderer.RenderHuman(cliout.HumanPayload{
 				Command: "profile.save",
 				Title:   "Profile Saved",
 				Events:  events,
-				Tables:  []cliout.Table{{Title: "Snapshot", Columns: []string{"Profile ID", "Alias", "Source", "Export", "Modules", "Content Hash"}, Rows: rows}},
+				Tables:  tables,
 				Done:    "Profile save complete",
 			})
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&depSelector, "dep", "", "dependency selector (index or source ref)")
-	cmd.Flags().StringVar(&alias, "alias", "", "optional human-readable alias")
-	cmd.Flags().BoolVar(&switchDependency, "switch", true, "switch selected dependency to saved profile source")
-	_ = cmd.MarkFlagRequired("dep")
+	cmd.Flags().StringVar(&alias, "alias", "", "profile alias (required; prompts in interactive terminals)")
+	cmd.Flags().BoolVar(&switchDependency, "switch", false, "switch dependency config to saved profile source")
 	return cmd
+}
+
+func resolveProfileAlias(cmd *cobra.Command, alias string) (string, error) {
+	alias = strings.TrimSpace(alias)
+	if alias != "" {
+		return alias, nil
+	}
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", errors.New("profile save requires --alias in non-interactive mode")
+	}
+	reader := bufio.NewReader(cmd.InOrStdin())
+	for {
+		_, _ = fmt.Fprint(cmd.ErrOrStderr(), "Enter profile alias: ")
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line, nil
+		}
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Alias cannot be empty")
+	}
 }
 
 func (a *app) newProfileListCmd() *cobra.Command {
@@ -137,7 +215,7 @@ func (a *app) newProfileListCmd() *cobra.Command {
 				if alias == "" {
 					alias = "-"
 				}
-				rows = append(rows, []string{p.ID, alias, p.SourceRef, p.SourceExport, strconv.Itoa(p.ModuleCount), p.CreatedAt})
+				rows = append(rows, []string{p.ID, alias, profileSourceSummary(p), "default", strconv.Itoa(p.ModuleCount), p.CreatedAt})
 			}
 			events := []cliout.Event{}
 			if len(profiles) == 0 {
@@ -173,9 +251,7 @@ func (a *app) newProfileShowCmd() *cobra.Command {
 			rows := [][]string{
 				{"id", meta.ID},
 				{"alias", meta.Alias},
-				{"sourceType", meta.SourceType},
-				{"sourceRef", meta.SourceRef},
-				{"sourceExport", meta.SourceExport},
+				{"sources", profileSourceSummary(meta)},
 				{"createdAt", meta.CreatedAt},
 				{"contentHash", shortSHA(meta.ContentHash)},
 				{"moduleCount", strconv.Itoa(meta.ModuleCount)},
@@ -190,6 +266,103 @@ func (a *app) newProfileShowCmd() *cobra.Command {
 			return nil
 		},
 	}
+	return cmd
+}
+
+func (a *app) newProfileRemoveCmd() *cobra.Command {
+	var yes bool
+	var removeAll bool
+	cmd := &cobra.Command{
+		Use:     "remove <profile-id-or-alias>",
+		Aliases: []string{"delete"},
+		Short:   "Remove one or all saved profiles",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if removeAll {
+				if len(args) != 0 {
+					return errors.New("profile remove --all does not accept an id or alias")
+				}
+				return nil
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes {
+				if !term.IsTerminal(int(os.Stdin.Fd())) {
+					return errors.New("profile remove requires --yes in non-interactive mode")
+				}
+				reader := bufio.NewReader(cmd.InOrStdin())
+				if removeAll {
+					_, _ = fmt.Fprint(cmd.ErrOrStderr(), "Remove all saved profiles? [y/N]: ")
+				} else {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Remove saved profile %q? [y/N]: ", args[0])
+				}
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					return err
+				}
+				answer := strings.ToLower(strings.TrimSpace(line))
+				if answer != "y" && answer != "yes" {
+					return errors.New("profile remove cancelled")
+				}
+			}
+
+			if removeAll {
+				removed, err := profilesvc.RemoveAll()
+				if err != nil {
+					return err
+				}
+				paths := make([]string, len(removed))
+				root, _ := profilesvc.GlobalRoot()
+				for i, meta := range removed {
+					paths[i] = filepath.Join(root, meta.ID)
+				}
+				out := profileRemoveOutput{Count: len(removed), RemovedProfiles: profileRemoveRows(removed, paths)}
+				if a.jsonMode {
+					return a.renderer.RenderJSON("profile.remove", out)
+				}
+				rows := [][]string{}
+				for _, r := range out.RemovedProfiles {
+					rows = append(rows, []string{r.ProfileID, r.Alias, r.Path})
+				}
+				events := []cliout.Event{{Level: "warn", Message: "Removed all saved profiles"}}
+				a.renderer.RenderHuman(cliout.HumanPayload{
+					Command: "profile.remove",
+					Title:   "Profiles Removed",
+					Events:  events,
+					Tables:  []cliout.Table{{Title: "Removed Profiles", Columns: []string{"Profile ID", "Alias", "Path"}, Rows: rows}},
+					Summary: map[string]string{"count": strconv.Itoa(len(rows))},
+					Done:    "Profile removal complete",
+				})
+				return nil
+			}
+
+			meta, path, err := profilesvc.Remove(args[0])
+			if err != nil {
+				return err
+			}
+			out := profileRemoveOutput{
+				ProfileID:       meta.ID,
+				Alias:           meta.Alias,
+				Path:            path,
+				Removed:         true,
+				Count:           1,
+				RemovedProfiles: profileRemoveRows([]profilesvc.Metadata{meta}, []string{path}),
+			}
+			if a.jsonMode {
+				return a.renderer.RenderJSON("profile.remove", out)
+			}
+			rows := [][]string{{meta.ID, meta.Alias, path}}
+			a.renderer.RenderHuman(cliout.HumanPayload{
+				Command: "profile.remove",
+				Title:   "Profile Removed",
+				Tables:  []cliout.Table{{Title: "Removed Profiles", Columns: []string{"Profile ID", "Alias", "Path"}, Rows: rows}},
+				Done:    "Profile removal complete",
+			})
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm deletion without prompting")
+	cmd.Flags().BoolVar(&removeAll, "all", false, "remove all saved profiles")
 	return cmd
 }
 
@@ -255,15 +428,11 @@ func (a *app) newProfileDiffCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sourceDep, err := dependencyFromProfileMetadata(meta)
-			if err != nil {
-				return err
-			}
-			freshModules, err := resolveModulesForDependency(gc, sourceDep)
-			if err != nil {
-				return err
-			}
 			currentModules, _, err := pack.ExpandProfileDependency(profileDir, profileDependencyForRead(config.Dependency{Source: profilesvc.ProfileSource, Profile: meta.ID, Export: "default"}), profilesvc.ProfileCommit)
+			if err != nil {
+				return err
+			}
+			freshModules, refreshedSources, skippedSources, err := resolveFreshModulesForProfile(gc, meta, currentModules)
 			if err != nil {
 				return err
 			}
@@ -273,9 +442,9 @@ func (a *app) newProfileDiffCmd() *cobra.Command {
 			}
 
 			changed, added, removed := diffModules(currentModules, freshModules)
-			currentHash := profilesvc.ComputeContentHash(currentModules, meta.SourceExport)
-			freshHash := profilesvc.ComputeContentHash(freshModules, meta.SourceExport)
-			out := newProfileDiffOutput(meta.ID, meta.SourceType, meta.SourceRef, currentHash, freshHash, changed, added, removed, rules)
+			currentHash := profilesvc.ComputeContentHash(currentModules, "default")
+			freshHash := profilesvc.ComputeContentHash(freshModules, "default")
+			out := newProfileDiffOutput(meta.ID, "combined", profileSourceSummary(meta), currentHash, freshHash, changed, added, removed, refreshedSources, skippedSources, rules)
 			if a.jsonMode {
 				return a.renderer.RenderJSON("profile.diff", out)
 			}
@@ -294,6 +463,11 @@ func (a *app) newProfileDiffCmd() *cobra.Command {
 			if len(rules) > 0 {
 				events = append(events, cliout.Event{Level: "info", Message: "Filtered by selectors: " + strings.Join(rules, ", ")})
 			}
+			if len(skippedSources) > 0 {
+				for _, s := range skippedSources {
+					events = append(events, cliout.Event{Level: "warn", Message: "Skipped source " + s.Source + ": " + s.Reason})
+				}
+			}
 			if len(diffRows) == 0 {
 				events = append(events, cliout.Event{Level: "info", Message: "No differences found"})
 			}
@@ -304,7 +478,7 @@ func (a *app) newProfileDiffCmd() *cobra.Command {
 				Tables:  []cliout.Table{{Title: "Module Changes", Columns: []string{"Type", "Module ID"}, Rows: diffRows}},
 				Summary: map[string]string{
 					"profile":     meta.ID,
-					"source":      meta.SourceRef,
+					"source":      profileSourceSummary(meta),
 					"currentHash": shortSHA(currentHash),
 					"freshHash":   shortSHA(freshHash),
 				},
@@ -321,6 +495,7 @@ func (a *app) newProfileRefreshCmd() *cobra.Command {
 	var newID bool
 	var rules []string
 	var dryRun bool
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "refresh <profile-id-or-alias>",
 		Short: "Refresh a saved profile from its original source",
@@ -334,15 +509,11 @@ func (a *app) newProfileRefreshCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sourceDep, err := dependencyFromProfileMetadata(meta)
-			if err != nil {
-				return err
-			}
-			freshModules, err := resolveModulesForDependency(gc, sourceDep)
-			if err != nil {
-				return err
-			}
 			oldModules, _, err := pack.ExpandProfileDependency(profileDir, profileDependencyForRead(config.Dependency{Source: profilesvc.ProfileSource, Profile: meta.ID, Export: "default"}), profilesvc.ProfileCommit)
+			if err != nil {
+				return err
+			}
+			freshModules, refreshedSources, skippedSources, err := resolveFreshModulesForProfile(gc, meta, oldModules)
 			if err != nil {
 				return err
 			}
@@ -351,7 +522,31 @@ func (a *app) newProfileRefreshCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			newHash := profilesvc.ComputeContentHash(mergedModules, meta.SourceExport)
+			changedModules, addedModules, removedModules := diffModules(oldModules, mergedModules)
+			inPlaceWithDiff := !newID && !dryRun && (len(changedModules)+len(addedModules)+len(removedModules) > 0)
+			preview := make([]string, 0, len(changedModules)+len(addedModules)+len(removedModules))
+			for _, id := range changedModules {
+				preview = append(preview, "changed: "+id)
+			}
+			for _, id := range addedModules {
+				preview = append(preview, "added: "+id)
+			}
+			for _, id := range removedModules {
+				preview = append(preview, "removed: "+id)
+			}
+			if err := confirmRiskAction(
+				cmd,
+				a.jsonMode,
+				yes,
+				inPlaceWithDiff,
+				fmt.Sprintf("profile refresh would update profile %q in place with module diffs", meta.ID),
+				fmt.Sprintf("Refresh profile %q in place with %d module change(s)?", meta.ID, len(preview)),
+				preview,
+				"profile refresh",
+			); err != nil {
+				return err
+			}
+			newHash := profilesvc.ComputeContentHash(mergedModules, "default")
 			saveID := ""
 			if !newID {
 				saveID = meta.ID
@@ -366,14 +561,11 @@ func (a *app) newProfileRefreshCmd() *cobra.Command {
 			} else {
 				alias := meta.Alias
 				saved, err = profilesvc.SaveSnapshot(profilesvc.SaveInput{
-					ID:           saveID,
-					Alias:        alias,
-					SourceType:   meta.SourceType,
-					SourceRef:    meta.SourceRef,
-					SourceExport: meta.SourceExport,
-					ContentHash:  newHash,
-					Modules:      mergedModules,
-					Provenance:   meta.Provenance,
+					ID:          saveID,
+					Alias:       alias,
+					Sources:     meta.Sources,
+					ContentHash: newHash,
+					Modules:     mergedModules,
 				})
 				if err != nil {
 					return err
@@ -381,17 +573,22 @@ func (a *app) newProfileRefreshCmd() *cobra.Command {
 			}
 
 			out := profileRefreshOutput{
-				OldProfileID:  meta.ID,
-				NewProfileID:  saved.ID,
-				RefreshedRule: refreshedIDs,
-				Source:        meta.SourceRef,
-				InPlace:       !newID,
-				DryRun:        dryRun,
+				OldProfileID:     meta.ID,
+				NewProfileID:     saved.ID,
+				RefreshedRule:    refreshedIDs,
+				Source:           profileSourceSummary(meta),
+				InPlace:          !newID,
+				DryRun:           dryRun,
+				RefreshedSources: refreshedSources,
+				SkippedSources:   skippedSources,
+				ChangedModules:   changedModules,
+				AddedModules:     addedModules,
+				RemovedModules:   removedModules,
 			}
 			if a.jsonMode {
 				return a.renderer.RenderJSON("profile.refresh", out)
 			}
-			rows := [][]string{{meta.ID, saved.ID, boolToYesNo(!newID), meta.SourceRef}}
+			rows := [][]string{{meta.ID, saved.ID, boolToYesNo(!newID), profileSourceSummary(meta)}}
 			ruleRows := make([][]string, 0, len(refreshedIDs))
 			for _, id := range refreshedIDs {
 				ruleRows = append(ruleRows, []string{id})
@@ -399,6 +596,13 @@ func (a *app) newProfileRefreshCmd() *cobra.Command {
 			tables := []cliout.Table{{Title: "Refresh Result", Columns: []string{"Old Profile", "New Profile", "In Place", "Source"}, Rows: rows}}
 			if len(ruleRows) > 0 {
 				tables = append(tables, cliout.Table{Title: "Refreshed Rules", Columns: []string{"Module ID"}, Rows: ruleRows})
+			}
+			if len(skippedSources) > 0 {
+				skipRows := make([][]string, 0, len(skippedSources))
+				for _, s := range skippedSources {
+					skipRows = append(skipRows, []string{s.Source, s.Reason})
+				}
+				tables = append(tables, cliout.Table{Title: "Skipped Sources", Columns: []string{"Source", "Reason"}, Rows: skipRows})
 			}
 			a.renderer.RenderHuman(cliout.HumanPayload{
 				Command: "profile.refresh",
@@ -413,5 +617,23 @@ func (a *app) newProfileRefreshCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&newID, "new-id", false, "create a new profile ID instead of updating in place")
 	cmd.Flags().StringArrayVar(&rules, "rule", nil, "refresh only specific module IDs/patterns")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview refresh result without writing profile files")
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm risky in-place refresh without prompting")
 	return cmd
+}
+
+func profileSourceSummary(meta profilesvc.Metadata) string {
+	if len(meta.Sources) == 1 {
+		s := meta.Sources[0]
+		return s.SourceType + ":" + s.SourceRef
+	}
+	return strconv.Itoa(len(meta.Sources)) + " sources"
+}
+
+func moduleIDs(modules []pack.Module) []string {
+	ids := make([]string, 0, len(modules))
+	for _, m := range modules {
+		ids = append(ids, m.ID)
+	}
+	buildSortStrings(ids)
+	return ids
 }
