@@ -33,7 +33,7 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
   ppa:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,24 +71,49 @@ jobs:
           gpgconf --kill gpg-agent || true
           echo "GNUPGHOME=${GNUPGHOME}" >> "$GITHUB_ENV"
 
-      - name: Build signed PPA source package
+      - name: Build PPA source package
         env:
           DEBFULLNAME: ${{ secrets.PPA_DEBFULLNAME }}
           DEBEMAIL: ${{ secrets.PPA_DEBEMAIL }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DEBFULLNAME}" || -z "${DEBEMAIL}" ]]; then
+            echo "PPA_DEBFULLNAME and PPA_DEBEMAIL are required"
+            exit 1
+          fi
+          ./scripts/build-ppa-source.sh "${TAG_NAME}" "jammy" "1"
+
+      - name: Sign PPA source package
+        env:
           GPG_KEY_ID: ${{ secrets.PPA_GPG_KEY_ID }}
           GPG_PASSPHRASE: ${{ secrets.PPA_GPG_PASSPHRASE }}
-          TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           if [[ -z "${GPG_KEY_ID}" ]]; then
             echo "PPA_GPG_KEY_ID is required"
             exit 1
           fi
-          if [[ -z "${DEBFULLNAME}" || -z "${DEBEMAIL}" ]]; then
-            echo "PPA_DEBFULLNAME and PPA_DEBEMAIL are required"
-            exit 1
+          passphrase_file=""
+          sign_wrapper="$(mktemp)"
+          trap 'rm -f "${passphrase_file}" "${sign_wrapper}"' EXIT
+          if [[ -n "${GPG_PASSPHRASE:-}" ]]; then
+            passphrase_file="$(mktemp)"
+            chmod 600 "${passphrase_file}"
+            printf '%s' "${GPG_PASSPHRASE}" > "${passphrase_file}"
           fi
-          ./scripts/build-ppa-source.sh "${TAG_NAME}" "jammy" "1"
+          {
+            echo '#!/usr/bin/env bash'
+            echo 'set -euo pipefail'
+            if [[ -n "${passphrase_file}" ]]; then
+              printf 'exec gpg --batch --yes --pinentry-mode loopback --passphrase-file %q "$@"\n' "${passphrase_file}"
+            else
+              echo 'exec gpg --batch --yes --pinentry-mode loopback "$@"'
+            fi
+          } > "${sign_wrapper}"
+          chmod 700 "${sign_wrapper}"
+          changes_file="$(ls -1 ../rulepack_*_source.changes | head -n1)"
+          debsign -k"${GPG_KEY_ID}" -p"${sign_wrapper}" "${changes_file}"
 
       - name: Upload PPA source artifacts
         uses: actions/upload-artifact@v4

@@ -38,31 +38,7 @@ if [[ ! -f "${orig_tarball}" ]]; then
   git archive --format=tar.gz --prefix="rulepack-${base_version}/" --output="${orig_tarball}" "${tag}"
 fi
 
-if [[ -n "${GPG_KEY_ID:-}" ]]; then
-  passphrase_file=""
-  sign_wrapper="$(mktemp)"
-  trap 'rm -f "${passphrase_file}" "${sign_wrapper}"' EXIT
-  if [[ -n "${GPG_PASSPHRASE:-}" ]]; then
-    passphrase_file="$(mktemp)"
-    chmod 600 "${passphrase_file}"
-    printf '%s' "${GPG_PASSPHRASE}" > "${passphrase_file}"
-  fi
-
-  {
-    echo '#!/usr/bin/env bash'
-    echo 'set -euo pipefail'
-    if [[ -n "${passphrase_file}" ]]; then
-      printf 'exec gpg --batch --yes --pinentry-mode loopback --passphrase-file %q "$@"\n' "${passphrase_file}"
-    else
-      echo 'exec gpg --batch --yes --pinentry-mode loopback "$@"'
-    fi
-  } > "${sign_wrapper}"
-  chmod 700 "${sign_wrapper}"
-
-  dpkg-buildpackage -S -sa -k"${GPG_KEY_ID}" -p"${sign_wrapper}"
-else
-  dpkg-buildpackage -S -sa -us -uc
-fi
+dpkg-buildpackage -S -sa -us -uc
 
 echo "Built source package artifacts in parent directory:"
 ls -1 ../rulepack_* || true
