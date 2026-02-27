@@ -1,5 +1,5 @@
-rulepack (0.1.0-1) unstable; urgency=medium
+rulepack (0.2.0-0ppa2~noble) noble; urgency=medium
 
-  * Initial Debian packaging.
+  * Release v0.2.0 for Ubuntu noble.
 
- -- Alex Gornovoi <alex.gornovoi@gmail.com>  Fri, 27 Feb 2026 00:00:00 +0000
+ -- Alex Gornovoi <alex.gornovoi@gmail.com>  Fri, 27 Feb 2026 17:23:14 -0500

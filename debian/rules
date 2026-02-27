@@ -1,12 +1,14 @@
 #!/usr/bin/make -f
 
 export DH_VERBOSE = 1
+GO := /usr/lib/go-1.23/bin/go
 
 %:
 	dh $@
 
 override_dh_auto_build:
-	go build -trimpath -ldflags="-s -w" -o rulepack ./cmd/rulepack
+	mkdir -p $(CURDIR)/debian/rulepack/usr/bin
+	$(GO) build -trimpath -ldflags="-s -w" -o $(CURDIR)/debian/rulepack/usr/bin/rulepack ./cmd/rulepack
 
 override_dh_auto_install:
-	install -D -m0755 rulepack $(CURDIR)/debian/rulepack/usr/bin/rulepack
+	:

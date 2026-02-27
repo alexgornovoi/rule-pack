@@ -4,14 +4,14 @@ Priority: optional
 Maintainer: Alex Gornovoi <alex.gornovoi@gmail.com>
 Build-Depends:
  debhelper-compat (= 13),
- golang-any
+ golang-1.23-go
 Standards-Version: 4.6.2
 Rules-Requires-Root: no
 Homepage: https://github.com/alexgornovoi/rule-pack
 
 Package: rulepack
 Architecture: any
-Depends: ${misc:Depends}, ${shlibs:Depends}
+Depends: ${misc:Depends}
 Description: Compose instruction modules from Git-based rule packs
  rulepack composes instruction modules from Git-based rule packs and
  builds target-specific outputs for tools such as Cursor, GitHub Copilot,
