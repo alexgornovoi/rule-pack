@@ -1,0 +1,24 @@
+{
+  "specVersion": "0.1",
+  "name": "selfhost",
+  "dependencies": [
+    {
+      "source": "local",
+      "path": "../packs/rule-authoring",
+      "export": "default"
+    }
+  ],
+  "targets": {
+    "cursor": {
+      "outDir": ".cursor/rules",
+      "perModule": true,
+      "ext": ".mdc"
+    },
+    "copilot": {
+      "outFile": ".github/copilot-instructions.md"
+    },
+    "codex": {
+      "outFile": ".codex/rules.md"
+    }
+  }
+}

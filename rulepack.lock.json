@@ -1,0 +1,13 @@
+{
+  "lockVersion": "0.1",
+  "resolved": [
+    {
+      "source": "profile",
+      "uri": "",
+      "profile": "445ca92ea31e__default__9477fa66",
+      "commit": "profile",
+      "contentHash": "8022444f876863cd4e2ed7d07155b4f533e1b17e621f7cf4355ce673c5423ce9",
+      "export": "default"
+    }
+  ]
+}

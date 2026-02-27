@@ -1,0 +1,22 @@
+{
+  "specVersion": "0.1",
+  "name": "rule-authoring",
+  "version": "0.1.0",
+  "modules": [
+    {
+      "id": "authoring.basics",
+      "path": "modules/authoring/basics.md",
+      "priority": 100
+    },
+    {
+      "id": "authoring.tests",
+      "path": "modules/authoring/tests.md",
+      "priority": 110
+    }
+  ],
+  "exports": {
+    "default": {
+      "include": ["authoring.*"]
+    }
+  }
+}

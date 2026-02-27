@@ -1,0 +1,25 @@
+{
+  "specVersion": "0.1",
+  "name": "my-rules",
+  "dependencies": [
+    {
+      "source": "profile",
+      "uri": "",
+      "profile": "445ca92ea31e__default__9477fa66",
+      "export": "default"
+    }
+  ],
+  "targets": {
+    "codex": {
+      "outFile": ".codex/rules.md"
+    },
+    "copilot": {
+      "outFile": ".github/copilot-instructions.md"
+    },
+    "cursor": {
+      "outDir": ".cursor/rules",
+      "perModule": true,
+      "ext": ".mdc"
+    }
+  }
+}
