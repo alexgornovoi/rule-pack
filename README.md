@@ -425,3 +425,8 @@ Contributions are welcome.
 - Send a PR with a clear description of user impact and behavior changes.
 - Include or update tests for CLI behavior changes (`human` + `--json` modes).
 - For automation-focused changes, prefer deterministic outputs and document JSON shape updates.
+
+## License
+
+This project is licensed under the MIT License.
+See `LICENSE` for details.
