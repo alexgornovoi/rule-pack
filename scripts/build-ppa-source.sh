@@ -20,6 +20,7 @@ fi
 
 base_version="${tag#v}"
 version="${base_version}-0ppa${ppa_rev}~${dist}"
+orig_tarball="../rulepack_${base_version}.orig.tar.gz"
 
 maintainer_name="${DEBFULLNAME:-Alex Gornovoi}"
 maintainer_email="${DEBEMAIL:-alex.gornovoi@gmail.com}"
@@ -32,6 +33,10 @@ rulepack (${version}) ${dist}; urgency=medium
 
  -- ${maintainer_name} <${maintainer_email}>  ${changed_at}
 CHANGELOG
+
+if [[ ! -f "${orig_tarball}" ]]; then
+  git archive --format=tar.gz --prefix="rulepack-${base_version}/" --output="${orig_tarball}" "${tag}"
+fi
 
 if [[ -n "${GPG_KEY_ID:-}" ]]; then
   dpkg-buildpackage -S -sa -k"${GPG_KEY_ID}"
