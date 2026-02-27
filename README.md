@@ -29,7 +29,7 @@ This repo includes GoReleaser config to publish from Git tags:
 
 - Chocolatey package metadata (`chocolateys`) in `.goreleaser.yaml`
 - Debian package artifacts (`nfpms` with `deb`) for APT users
-- Homebrew formula automation (`brews`) for a tap repo
+- Homebrew cask automation (`homebrew_casks`) for a tap repo
 
 Release workflow:
 

@@ -45,7 +45,7 @@ nfpms:
       - deb
     bindir: /usr/bin
 
-brews:
+homebrew_casks:
   - name: rulepack
     repository:
       owner: alexgornovoi
@@ -53,9 +53,8 @@ brews:
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/alexgornovoi/rule-pack
     description: Compose instruction modules from Git-based rule packs.
-    license: MIT
-    test: |
-      system "#{bin}/rulepack", "--help"
+    url:
+      verified: github.com/alexgornovoi/rule-pack
 
 chocolateys:
   - name: rulepack
