@@ -108,6 +108,115 @@ func TestDepsListCommandJSON(t *testing.T) {
 	}
 }
 
+func TestAddCommandJSON_AutoInitWhenMissingRuleset(t *testing.T) {
+	projectDir := t.TempDir()
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newAddCmd(), &env, "https://example.com/rules.git", "--export", "python"); err != nil {
+		t.Fatalf("add failed: %v", err)
+	}
+	if env.Command != "add" {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var out addOutput
+	if err := json.Unmarshal(env.Result, &out); err != nil {
+		t.Fatalf("unmarshal add result: %v", err)
+	}
+	if out.Action != "added" {
+		t.Fatalf("expected added action, got %s", out.Action)
+	}
+
+	cfg, err := config.LoadRuleset(filepath.Join(projectDir, config.RulesetFileName))
+	if err != nil {
+		t.Fatalf("load ruleset: %v", err)
+	}
+	if cfg.SpecVersion != "0.1" {
+		t.Fatalf("unexpected specVersion: %s", cfg.SpecVersion)
+	}
+	if cfg.Name != filepath.Base(projectDir) {
+		t.Fatalf("expected auto-init name %s, got %s", filepath.Base(projectDir), cfg.Name)
+	}
+	if len(cfg.Dependencies) != 1 {
+		t.Fatalf("expected 1 dependency, got %d", len(cfg.Dependencies))
+	}
+	if cfg.Dependencies[0].URI != "https://example.com/rules.git" || cfg.Dependencies[0].Export != "python" {
+		t.Fatalf("unexpected dependency: %+v", cfg.Dependencies[0])
+	}
+	if _, ok := cfg.Targets["cursor"]; !ok {
+		t.Fatalf("expected default cursor target to be present")
+	}
+}
+
+func TestRemoveCommandJSON(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "git", URI: "https://example.com/rules.git", Export: "default"},
+			{Source: "local", Path: "../local-rules", Export: "local"},
+			{Source: "profile", Profile: "abc123__python__01", Export: "default"},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newRemoveCmd(), &env, "1", "abc123__python__01"); err != nil {
+		t.Fatalf("remove failed: %v", err)
+	}
+	if env.Command != "remove" {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var out removeOutput
+	if err := json.Unmarshal(env.Result, &out); err != nil {
+		t.Fatalf("unmarshal remove result: %v", err)
+	}
+	if len(out.Removed) != 2 {
+		t.Fatalf("expected 2 removed dependencies, got %d", len(out.Removed))
+	}
+	if out.Remaining != 1 {
+		t.Fatalf("expected 1 remaining dependency, got %d", out.Remaining)
+	}
+	newCfg, err := config.LoadRuleset(filepath.Join(projectDir, config.RulesetFileName))
+	if err != nil {
+		t.Fatalf("load ruleset: %v", err)
+	}
+	if len(newCfg.Dependencies) != 1 || newCfg.Dependencies[0].Source != "local" {
+		t.Fatalf("unexpected remaining dependencies: %#v", newCfg.Dependencies)
+	}
+}
+
+func TestRemoveCommand_AmbiguousSelector(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "git", URI: "https://example.com/rules.git"},
+			{Source: "git", URI: "https://example.com/rules.git"},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	err := runCmdJSON(t, projectDir, a.newRemoveCmd(), &env, "https://example.com/rules.git")
+	if err == nil {
+		t.Fatalf("expected remove to fail for ambiguous selector")
+	}
+	if !strings.Contains(err.Error(), "matched multiple dependencies") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestDoctorCommandJSON(t *testing.T) {
 	projectDir := t.TempDir()
 	cfg := config.Ruleset{SpecVersion: "0.1", Name: "proj"}

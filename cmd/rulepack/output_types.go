@@ -19,6 +19,20 @@ type addOutput struct {
 	Dependency  config.Dependency `json:"dependency"`
 }
 
+type removedDependencyRow struct {
+	Index      int               `json:"index"`
+	Source     string            `json:"source"`
+	Ref        string            `json:"ref"`
+	Export     string            `json:"export,omitempty"`
+	Dependency config.Dependency `json:"dependency"`
+}
+
+type removeOutput struct {
+	RulesetFile string                 `json:"rulesetFile"`
+	Removed     []removedDependencyRow `json:"removed"`
+	Remaining   int                    `json:"remaining"`
+}
+
 type installResolvedRow struct {
 	Index    int    `json:"index"`
 	Source   string `json:"source"`
@@ -71,11 +85,11 @@ type profileRefreshOutput struct {
 }
 
 type depsListRow struct {
-	Index   int    `json:"index"`
-	Source  string `json:"source"`
-	Ref     string `json:"ref"`
-	Export  string `json:"export,omitempty"`
-	Locked  string `json:"locked,omitempty"`
+	Index  int    `json:"index"`
+	Source string `json:"source"`
+	Ref    string `json:"ref"`
+	Export string `json:"export,omitempty"`
+	Locked string `json:"locked,omitempty"`
 }
 
 type depsListOutput struct {
