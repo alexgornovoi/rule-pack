@@ -2,13 +2,16 @@
 
 export DH_VERBOSE = 1
 GO := /usr/lib/go-1.23/bin/go
+GO_CACHE := $(CURDIR)/debian/.cache/go-build
+GO_HOME := $(CURDIR)/debian/.home
 
 %:
 	dh $@
 
 override_dh_auto_build:
+	mkdir -p $(GO_CACHE) $(GO_HOME)
 	mkdir -p $(CURDIR)/debian/rulepack/usr/bin
-	$(GO) build -trimpath -ldflags="-s -w" -o $(CURDIR)/debian/rulepack/usr/bin/rulepack ./cmd/rulepack
+	HOME=$(GO_HOME) GOCACHE=$(GO_CACHE) $(GO) build -trimpath -ldflags="-s -w" -o $(CURDIR)/debian/rulepack/usr/bin/rulepack ./cmd/rulepack
 
 override_dh_auto_install:
 	:
