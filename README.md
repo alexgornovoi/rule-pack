@@ -228,6 +228,7 @@ Flags:
 
 Removes one or more dependencies from `rulepack.json`.
 Selectors can be 1-based index (`1`) or exact dependency reference (`uri`, `path`, or `profile id`).
+This command updates only `rulepack.json`; run `rulepack install` afterward to refresh `rulepack.lock.json`.
 
 ```bash
 rulepack remove 1
@@ -235,7 +236,16 @@ rulepack remove https://github.com/org/rules.git
 rulepack remove 1 b4f97d30f0aa__python__2f9baf1a
 ```
 
-`remove` also supports alias `uninstall`, and is available under `deps` as `rulepack deps remove ...`.
+`remove` also supports alias `uninstall`, and is available under `deps` as `rulepack deps remove ...` (or `rulepack deps uninstall ...`).
+
+### `deps remove <dep-selector> [dep-selector...]`
+
+Equivalent to top-level `remove`, but namespaced under `deps`:
+
+```bash
+rulepack deps remove 2
+rulepack deps uninstall https://github.com/org/rules.git
+```
 
 ### Local dependencies
 
