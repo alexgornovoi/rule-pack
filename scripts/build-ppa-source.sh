@@ -7,7 +7,7 @@ if [[ ! -f "go.mod" || ! -d "debian" ]]; then
 fi
 
 tag="${1:-}"
-dist="${2:-jammy}"
+dist="${2:-noble}"
 ppa_rev="${3:-1}"
 
 if [[ -z "${tag}" ]]; then

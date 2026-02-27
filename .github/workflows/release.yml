@@ -33,7 +33,7 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
   ppa:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
             echo "PPA_DEBFULLNAME and PPA_DEBEMAIL are required"
             exit 1
           fi
-          ./scripts/build-ppa-source.sh "${TAG_NAME}" "jammy" "1"
+          ./scripts/build-ppa-source.sh "${TAG_NAME}" "noble" "1"
 
       - name: Sign PPA source package
         env:
@@ -128,7 +128,7 @@ jobs:
       - name: Store PPA source artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ppa-source-${{ github.ref_name }}-jammy
+          name: ppa-source-${{ github.ref_name }}-noble
           path: ppa-artifacts/
 
       - name: Upload to Launchpad PPA
