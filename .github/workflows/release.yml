@@ -116,15 +116,20 @@ jobs:
           debsign -k"${GPG_KEY_ID}" -p"${sign_wrapper}" "${changes_file}"
 
       - name: Upload PPA source artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p ppa-artifacts
+          cp -v ../rulepack_*.dsc ppa-artifacts/
+          cp -v ../rulepack_*.debian.tar.* ppa-artifacts/
+          cp -v ../rulepack_*.orig.tar.* ppa-artifacts/
+          cp -v ../rulepack_*.changes ppa-artifacts/
+          cp -v ../rulepack_*.buildinfo ppa-artifacts/
+
+      - name: Store PPA source artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ppa-source-${{ github.ref_name }}-jammy
-          path: |
-            ../rulepack_*.dsc
-            ../rulepack_*.debian.tar.*
-            ../rulepack_*.orig.tar.*
-            ../rulepack_*.changes
-            ../rulepack_*.buildinfo
+          path: ppa-artifacts/
 
       - name: Upload to Launchpad PPA
         env:
