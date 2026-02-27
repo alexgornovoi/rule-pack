@@ -64,7 +64,7 @@ go build -o bin/rulepack ./cmd/rulepack
 ./bin/rulepack --help
 ```
 
-Run without building:
+Run without building (development only):
 
 ```bash
 go run ./cmd/rulepack --help
@@ -89,36 +89,36 @@ rulepack build --no-color
 Initialize a project:
 
 ```bash
-go run ./cmd/rulepack init --name my-rules
+rulepack init --name my-rules
 
 # or scaffold a built-in "rules for writing rules" local pack
-go run ./cmd/rulepack init --name my-rules --template rulepack
+rulepack init --name my-rules --template rulepack
 ```
 
 Add a dependency:
 
 ```bash
 # Track a semver range
-go run ./cmd/rulepack add https://github.com/org/rulepack.git --version "^1.2.0"
+rulepack add https://github.com/org/rulepack.git --version "^1.2.0"
 
 # Or pin a ref directly (commit/tag/branch)
-go run ./cmd/rulepack add https://github.com/org/rulepack.git --ref v1.2.3
+rulepack add https://github.com/org/rulepack.git --ref v1.2.3
 ```
 
 Resolve and lock:
 
 ```bash
-go run ./cmd/rulepack install
+rulepack install
 ```
 
 Build outputs:
 
 ```bash
 # all targets (default)
-go run ./cmd/rulepack build
+rulepack build
 
 # single target
-go run ./cmd/rulepack build --target codex
+rulepack build --target codex
 ```
 
 ## Example user flows
