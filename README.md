@@ -2,6 +2,27 @@
 
 `rulepack` is a Go CLI that composes instruction modules from Git-based rule packs and builds target-specific outputs for tools like Cursor, GitHub Copilot, and Codex.
 
+[![Release](https://img.shields.io/github/v/release/alexgornovoi/rule-pack)](https://github.com/alexgornovoi/rule-pack/releases)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/alexgornovoi/rule-pack)](https://github.com/alexgornovoi/rule-pack/blob/main/go.mod)
+
+[Releases](https://github.com/alexgornovoi/rule-pack/releases) · [Issues](https://github.com/alexgornovoi/rule-pack/issues)
+
+## Table of Contents
+
+- [What it does](#what-it-does)
+- [Install](#install)
+- [Releases](#releases)
+- [Build From Source (Go)](#build-from-source-go)
+- [Publishing (Chocolatey, APT, Homebrew)](#publishing-chocolatey-apt-homebrew)
+- [Output modes](#output-modes)
+- [Quick start](#quick-start)
+- [Example user flows](#example-user-flows)
+- [Commands](#commands)
+- [Dependency resolution details](#dependency-resolution-details)
+- [Output behavior](#output-behavior)
+- [File reference](#file-reference)
+- [Support the project](#support-the-project)
+
 ## What it does
 
 - Resolves dependencies from Git URLs.
@@ -11,13 +32,57 @@
 - Applies local overrides (currently priority overrides).
 - Produces deterministic, sorted output for configured targets.
 
-## Install / build
+## Install
+
+### Homebrew (macOS/Linux)
 
 ```bash
-go build ./cmd/rulepack
+brew tap alexgornovoi/homebrew-tap
+brew install --cask rulepack
 ```
 
-Or run without building:
+Or without tapping first:
+
+```bash
+brew install --cask alexgornovoi/homebrew-tap/rulepack
+```
+
+### Chocolatey (Windows)
+
+```powershell
+choco install rulepack -y
+```
+
+Upgrade:
+
+```powershell
+choco upgrade rulepack -y
+```
+
+## Releases
+
+- All tagged versions: [GitHub Releases](https://github.com/alexgornovoi/rule-pack/releases)
+- First public release: [v0.1.0](https://github.com/alexgornovoi/rule-pack/releases/tag/v0.1.0)
+- Latest assets include platform archives and checksums (`checksums.txt`).
+
+Install a specific version with Chocolatey:
+
+```powershell
+choco install rulepack --version=0.1.2 -y
+```
+
+## Build From Source (Go)
+
+Clone and build this repo:
+
+```bash
+git clone https://github.com/alexgornovoi/rule-pack.git
+cd rule-pack
+go build -o bin/rulepack ./cmd/rulepack
+./bin/rulepack --help
+```
+
+Run without building:
 
 ```bash
 go run ./cmd/rulepack --help

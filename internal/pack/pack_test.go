@@ -86,6 +86,66 @@ func TestExpandLocalDependency_NamedExportAndHashDrift(t *testing.T) {
 	}
 }
 
+func TestExpandLocalDependency_ImplicitFolderExportFallback(t *testing.T) {
+	root := writeLocalPack(t, `{
+  "specVersion": "0.1",
+  "name": "local-pack",
+  "version": "1.0.0",
+  "modules": [
+    {"id":"standards.style","path":"modules/standards/style.md","priority":100},
+    {"id":"tasks.setup","path":"modules/tasks/setup.md","priority":200}
+  ],
+  "exports": {
+    "default": {"include":["**"]}
+  }
+}`)
+	writeFile(t, filepath.Join(root, "modules", "standards", "style.md"), "S\n")
+	writeFile(t, filepath.Join(root, "modules", "tasks", "setup.md"), "T\n")
+
+	dep := config.Dependency{Source: "local", Path: ".", Export: "standards"}
+	mods, _, err := ExpandLocalDependency(root, dep, "local")
+	if err != nil {
+		t.Fatalf("ExpandLocalDependency: %v", err)
+	}
+	if len(mods) != 1 {
+		t.Fatalf("expected one selected module, got %d", len(mods))
+	}
+	if mods[0].ID != "standards.style" {
+		t.Fatalf("expected standards.style, got %s", mods[0].ID)
+	}
+}
+
+func TestExpandLocalDependency_ExportWithFoldersSelector(t *testing.T) {
+	root := writeLocalPack(t, `{
+  "specVersion": "0.1",
+  "name": "local-pack",
+  "version": "1.0.0",
+  "modules": [
+    {"id":"standards.style","path":"modules/standards/style.md","priority":100},
+    {"id":"languages.python.patterns","path":"modules/languages/python/patterns.md","priority":200},
+    {"id":"tasks.setup","path":"modules/tasks/setup.md","priority":300}
+  ],
+  "exports": {
+    "python-core": {"folders":["standards","languages/python"]}
+  }
+}`)
+	writeFile(t, filepath.Join(root, "modules", "standards", "style.md"), "S\n")
+	writeFile(t, filepath.Join(root, "modules", "languages", "python", "patterns.md"), "P\n")
+	writeFile(t, filepath.Join(root, "modules", "tasks", "setup.md"), "T\n")
+
+	dep := config.Dependency{Source: "local", Path: ".", Export: "python-core"}
+	mods, _, err := ExpandLocalDependency(root, dep, "local")
+	if err != nil {
+		t.Fatalf("ExpandLocalDependency: %v", err)
+	}
+	if len(mods) != 2 {
+		t.Fatalf("expected two selected modules, got %d", len(mods))
+	}
+	if mods[0].ID != "standards.style" || mods[1].ID != "languages.python.patterns" {
+		t.Fatalf("unexpected module selection order: %s, %s", mods[0].ID, mods[1].ID)
+	}
+}
+
 func writeLocalPack(t *testing.T, rulepackJSON string) string {
 	t.Helper()
 	root := t.TempDir()

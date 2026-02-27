@@ -33,6 +33,7 @@ type ModuleEntry struct {
 
 type ExportSelector struct {
 	Include   []string `json:"include,omitempty"`
+	Folders   []string `json:"folders,omitempty"`
 	AppliesTo []string `json:"appliesTo,omitempty"`
 }
 
@@ -184,6 +185,11 @@ func exportSelector(rp RulePack, name string) (ExportSelector, error) {
 	}
 	exp, ok := rp.Exports[name]
 	if !ok {
+		// Convenience fallback: if no named export exists, allow export-by-folder.
+		// Example: --export standards selects modules under modules/standards/.
+		if hasModulesInFolder(rp.Modules, name) {
+			return ExportSelector{Folders: []string{name}}, nil
+		}
 		return ExportSelector{}, fmt.Errorf("missing export %q in %s", name, rp.Name)
 	}
 	return exp, nil
@@ -191,7 +197,8 @@ func exportSelector(rp RulePack, name string) (ExportSelector, error) {
 
 func selectModules(modules []ModuleEntry, selector ExportSelector) []ModuleEntry {
 	include := selector.Include
-	if len(include) == 0 {
+	folders := normalizeFolders(selector.Folders)
+	if len(include) == 0 && len(folders) == 0 {
 		include = []string{"**"}
 	}
 	applies := make(map[string]struct{}, len(selector.AppliesTo))
@@ -200,7 +207,7 @@ func selectModules(modules []ModuleEntry, selector ExportSelector) []ModuleEntry
 	}
 	out := make([]ModuleEntry, 0, len(modules))
 	for _, m := range modules {
-		if !matchesAny(m.ID, include) {
+		if !matchesAny(m.ID, include) && !matchesAnyFolder(m.Path, folders) {
 			continue
 		}
 		if len(applies) > 0 && len(m.AppliesTo) > 0 && !intersects(m.AppliesTo, applies) {
@@ -236,6 +243,50 @@ func matchesAny(id string, patterns []string) bool {
 func intersects(values []string, want map[string]struct{}) bool {
 	for _, value := range values {
 		if _, ok := want[value]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func hasModulesInFolder(modules []ModuleEntry, folder string) bool {
+	folders := normalizeFolders([]string{folder})
+	for _, m := range modules {
+		if matchesAnyFolder(m.Path, folders) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeFolders(folders []string) []string {
+	out := make([]string, 0, len(folders))
+	for _, raw := range folders {
+		folder := strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/"))
+		folder = strings.Trim(folder, "/")
+		if folder == "" {
+			continue
+		}
+		if strings.Contains(folder, ".") && !strings.Contains(folder, "/") {
+			folder = strings.ReplaceAll(folder, ".", "/")
+		}
+		out = append(out, folder)
+	}
+	return out
+}
+
+func matchesAnyFolder(modulePath string, folders []string) bool {
+	if len(folders) == 0 {
+		return false
+	}
+	modulePath = strings.TrimSpace(strings.ReplaceAll(modulePath, "\\", "/"))
+	modulePath = strings.Trim(modulePath, "/")
+	for _, folder := range folders {
+		modulePrefix := "modules/" + folder
+		if modulePath == modulePrefix || strings.HasPrefix(modulePath, modulePrefix+"/") {
+			return true
+		}
+		if modulePath == folder || strings.HasPrefix(modulePath, folder+"/") {
 			return true
 		}
 	}

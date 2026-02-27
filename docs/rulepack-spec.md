@@ -193,6 +193,11 @@ Directory contents:
 ### Export selection
 
 - If dependency `export` is set, that named export must exist.
+- If dependency `export` is set, that named export is used.
+- If dependency `export` is set and no named export exists, Rulepack falls back to
+  folder shorthand: it selects modules under `modules/<export>/` (and nested paths).
+  Example: `--export standards` selects modules with paths like
+  `modules/standards/...`.
 - If not set:
   - use `exports.default` if present,
   - otherwise implicit selector: `{"include":["**"]}`.
@@ -201,7 +206,7 @@ Directory contents:
 
 A module is selected when:
 
-1. Its `id` matches any include pattern.
+1. Its `id` matches any include pattern, or its `path` matches any folder selector.
 2. Applies-to filtering passes.
 
 Include matching supports:
@@ -209,6 +214,12 @@ Include matching supports:
 - `**` or `*` as wildcard-all.
 - `path.Match`-style pattern matching.
 - Prefix-star fallback (`foo*` matches IDs starting with `foo`).
+
+Folder matching supports:
+
+- `folders` export selector field (array of folder prefixes).
+- Prefix matching against module paths (typically under `modules/`).
+- Dotted shorthand for single token paths (`languages.python` -> `languages/python`).
 
 Applies-to behavior:
 
