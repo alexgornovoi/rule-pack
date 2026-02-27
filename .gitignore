@@ -32,3 +32,6 @@ Thumbs.db
 
 # Local-only sibling repo used for editing
 prompt-library/
+
+# Local planning docs
+specs/
