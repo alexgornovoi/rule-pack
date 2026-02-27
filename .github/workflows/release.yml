@@ -31,3 +31,64 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      - name: Install PPA packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y devscripts debhelper golang-any dpkg-dev dput gnupg
+
+      - name: Import PPA signing key
+        env:
+          PPA_GPG_PRIVATE_KEY_B64: ${{ secrets.PPA_GPG_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${PPA_GPG_PRIVATE_KEY_B64}" ]]; then
+            echo "PPA_GPG_PRIVATE_KEY_B64 is required"
+            exit 1
+          fi
+          export GNUPGHOME="${RUNNER_TEMP}/gnupg"
+          mkdir -p "${GNUPGHOME}"
+          chmod 700 "${GNUPGHOME}"
+          echo "${PPA_GPG_PRIVATE_KEY_B64}" | base64 -d | gpg --batch --import
+          echo "GNUPGHOME=${GNUPGHOME}" >> "$GITHUB_ENV"
+
+      - name: Build signed PPA source package
+        env:
+          DEBFULLNAME: ${{ secrets.PPA_DEBFULLNAME }}
+          DEBEMAIL: ${{ secrets.PPA_DEBEMAIL }}
+          GPG_KEY_ID: ${{ secrets.PPA_GPG_KEY_ID }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GPG_KEY_ID}" ]]; then
+            echo "PPA_GPG_KEY_ID is required"
+            exit 1
+          fi
+          if [[ -z "${DEBFULLNAME}" || -z "${DEBEMAIL}" ]]; then
+            echo "PPA_DEBFULLNAME and PPA_DEBEMAIL are required"
+            exit 1
+          fi
+          ./scripts/build-ppa-source.sh "${TAG_NAME}" "jammy" "1"
+
+      - name: Upload PPA source artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ppa-source-${{ github.ref_name }}-jammy
+          path: |
+            ../rulepack_*.dsc
+            ../rulepack_*.debian.tar.*
+            ../rulepack_*.orig.tar.*
+            ../rulepack_*.changes
+            ../rulepack_*.buildinfo
+
+      - name: Upload to Launchpad PPA
+        env:
+          PPA_TARGET: ${{ secrets.PPA_TARGET }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${PPA_TARGET}" ]]; then
+            echo "PPA_TARGET is required (example: ppa:alexgornovoi/rulepack)"
+            exit 1
+          fi
+          changes_file="$(ls -1 ../rulepack_*_source.changes | head -n1)"
+          dput "${PPA_TARGET}" "${changes_file}"

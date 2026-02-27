@@ -11,7 +11,6 @@
 
 - [What it does](#what-it-does)
 - [Install](#install)
-- [Releases](#releases)
 - [Build From Source (Go)](#build-from-source-go)
 - [Output modes](#output-modes)
 - [Quick start](#quick-start)
@@ -20,7 +19,7 @@
 - [Dependency resolution details](#dependency-resolution-details)
 - [Output behavior](#output-behavior)
 - [File reference](#file-reference)
-- [Support the project](#support-the-project)
+- [Contributors](#contributors)
 
 ## What it does
 
@@ -52,30 +51,6 @@ brew install --cask alexgornovoi/homebrew-tap/rulepack
 sudo add-apt-repository ppa:alexgornovoi/rulepack
 sudo apt update
 sudo apt install rulepack
-```
-
-## Releases
-
-- All tagged versions: [GitHub Releases](https://github.com/alexgornovoi/rule-pack/releases)
-- First public release: [v0.1.0](https://github.com/alexgornovoi/rule-pack/releases/tag/v0.1.0)
-- Latest assets include platform archives and checksums (`checksums.txt`).
-
-### PPA publisher setup (maintainer)
-
-Use the manual workflow [ppa.yml](.github/workflows/ppa.yml) to build and optionally upload a Launchpad source package.
-
-Required repository secrets for PPA upload:
-
-- `PPA_TARGET`: Launchpad target (example: `ppa:alexgornovoi/rulepack`)
-- `PPA_GPG_PRIVATE_KEY_B64`: Base64-encoded ASCII-armored private key used to sign source uploads.
-- `PPA_GPG_KEY_ID`: GPG key ID/fingerprint matching the uploaded Launchpad key.
-- `PPA_DEBFULLNAME`: Maintainer full name used in changelog/signing context.
-- `PPA_DEBEMAIL`: Maintainer email used in changelog/signing context.
-
-The helper script used by CI is [build-ppa-source.sh](scripts/build-ppa-source.sh):
-
-```bash
-./scripts/build-ppa-source.sh v0.2.0 jammy 1
 ```
 
 ## Build From Source (Go)
@@ -495,9 +470,11 @@ For a repository-local dogfood setup, see:
 
 - `examples/README.md`
 
-## Support the project
+## Contributors
 
-- Open issues for bugs, DX pain points, and feature requests.
-- Share reusable rule packs and profile workflows with examples.
-- Contribute tests with each CLI UX change (`human` + `--json` modes).
-- For automation users, prefer `--json` and report schema gaps early.
+Contributions are welcome.
+
+- Open an issue first for bugs, UX pain points, or feature proposals.
+- Send a PR with a clear description of user impact and behavior changes.
+- Include or update tests for CLI behavior changes (`human` + `--json` modes).
+- For automation-focused changes, prefer deterministic outputs and document JSON shape updates.
