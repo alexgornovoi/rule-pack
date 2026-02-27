@@ -29,3 +29,6 @@ Thumbs.db
 # Environment files
 .env
 .env.*
+
+# Local-only sibling repo used for editing
+prompt-library/

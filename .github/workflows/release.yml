@@ -67,6 +67,8 @@ jobs:
           clean_b64="$(printf '%s' "${PPA_GPG_PRIVATE_KEY_B64}" | tr -d '[:space:]')"
           printf '%s' "${clean_b64}" | base64 --decode > "${key_file}"
           gpg --batch --import "${key_file}"
+          echo "allow-loopback-pinentry" >> "${GNUPGHOME}/gpg-agent.conf"
+          gpgconf --kill gpg-agent || true
           echo "GNUPGHOME=${GNUPGHOME}" >> "$GITHUB_ENV"
 
       - name: Build signed PPA source package
@@ -74,6 +76,7 @@ jobs:
           DEBFULLNAME: ${{ secrets.PPA_DEBFULLNAME }}
           DEBEMAIL: ${{ secrets.PPA_DEBEMAIL }}
           GPG_KEY_ID: ${{ secrets.PPA_GPG_KEY_ID }}
+          GPG_PASSPHRASE: ${{ secrets.PPA_GPG_PASSPHRASE }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail

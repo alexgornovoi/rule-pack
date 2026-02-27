@@ -39,7 +39,15 @@ if [[ ! -f "${orig_tarball}" ]]; then
 fi
 
 if [[ -n "${GPG_KEY_ID:-}" ]]; then
-  dpkg-buildpackage -S -sa -k"${GPG_KEY_ID}"
+  sign_cmd="gpg --batch --yes --pinentry-mode loopback"
+  if [[ -n "${GPG_PASSPHRASE:-}" ]]; then
+    passphrase_file="$(mktemp)"
+    trap 'rm -f "${passphrase_file}"' EXIT
+    chmod 600 "${passphrase_file}"
+    printf '%s' "${GPG_PASSPHRASE}" > "${passphrase_file}"
+    sign_cmd="${sign_cmd} --passphrase-file ${passphrase_file}"
+  fi
+  dpkg-buildpackage -S -sa -k"${GPG_KEY_ID}" -p"${sign_cmd}"
 else
   dpkg-buildpackage -S -sa -us -uc
 fi
