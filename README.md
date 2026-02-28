@@ -10,10 +10,11 @@
 ## On This Page
 
 - [Quickstart](#quickstart-60-seconds)
+- [Quick Reference](#quick-reference)
 - [Install](#install)
 - [Core Workflow Recipes](#core-workflow-recipes)
 - [Commands Reference](#commands-reference)
-- [Verified CLI Output Snapshots](#verified-cli-output-snapshots)
+- [Generated Outputs](#generated-outputs)
 - [Advanced Workflows](#advanced-workflows)
 - [Troubleshooting FAQ](#troubleshooting-faq)
 - [Prompt Repository Maintainer Guide](#prompt-repository-maintainer-guide)
@@ -35,6 +36,16 @@ rulepack build
 ![Terminal quickstart demo](docs/assets/quickstart-demo.svg)
 
 _Quickstart flow preview: init -> deps add -> deps install -> build._
+
+## Quick Reference
+
+| Task | Command |
+| --- | --- |
+| Initialize project | `rulepack init --name my-project` |
+| Add dependency | `rulepack deps add <git-url>` |
+| Resolve lockfile | `rulepack deps install` |
+| Build outputs | `rulepack build` |
+| Run diagnostics | `rulepack doctor` |
 
 ## Why Rulepack
 
@@ -76,7 +87,22 @@ sudo apt install rulepack
 
 ## Core Workflow Recipes
 
-### Python-only rules
+> [!NOTE]
+> When `--export` is omitted, Rulepack uses `exports.default` if present; otherwise it includes all modules (`include: ["**"]`).
+
+### From zero (local prompt repository)
+
+Use this when you want a complete local setup without publishing a git repo first.
+
+```bash
+rulepack init --name my-local-project
+rulepack deps add --local ./prompt-library --export default
+rulepack deps install
+rulepack build
+rulepack doctor
+```
+
+### Example: Python-only rules
 
 Use one exported ruleset for a Python project.
 
@@ -87,7 +113,7 @@ rulepack deps install
 rulepack build
 ```
 
-### Python + ML rules from one repo
+### Example: Python + ML rules from one repo
 
 Install two exports from the same dependency source.
 
@@ -119,9 +145,6 @@ rulepack deps install
 rulepack build --target codex
 ```
 
-> [!NOTE]
-> If `--export` is omitted, Rulepack uses `exports.default` when present. If no default export exists, all modules are selected (`include: ["**"]`).
-
 ## Commands Reference
 
 Global flags:
@@ -152,7 +175,7 @@ Global flags:
 
 | Command | Purpose | Common flags | Notes |
 | --- | --- | --- | --- |
-| `rulepack build` | Build target outputs from lockfile | `--target cursor|copilot|codex|all`, `--yes` | `--target` defaults to `all` |
+| `rulepack build` | Build target outputs from lockfile | `--target cursor\|copilot\|codex\|all`, `--yes` | `--target` defaults to `all` |
 
 > [!WARNING]
 > In non-interactive or `--json` mode, operations that require confirmation (for example `deps add` replacement, some `build` collisions, profile updates) require `--yes`.
@@ -180,123 +203,13 @@ Global flags:
 
 </details>
 
-## Verified CLI Output Snapshots
+## Generated Outputs
 
-These blocks were captured from real `rulepack` runs on February 27, 2026 using `--no-color` in this workspace.
-
-### `rulepack --help`
-
-```text
-rulepack composes rule packs into target outputs. Use --json for machine-readable output.
-
-Usage:
-  rulepack [command]
-
-Available Commands:
-  build       Compile resolved rule packs into target outputs
-  completion  Generate the autocompletion script for the specified shell
-  deps        Manage dependency lifecycle
-  doctor      Validate environment, config, lockfile, and profile store
-  help        Help about any command
-  init        Create a starter rulepack.json
-  profile     Manage reusable globally saved profiles
-
-Flags:
-  -h, --help       help for rulepack
-      --json       emit JSON output
-      --no-color   disable color in human output
-
-Use "rulepack [command] --help" for more information about a command.
-```
-
-### `rulepack init --name sample-project --no-color`
-
-```text
- Initialize Rulepack 
-- Created rulepack.json
-
-Scaffolded Files
-| Path |
-|------|
-
-OK Initialization complete
-```
-
-### `rulepack deps add --local /Users/alex/Documents/rule-pack/prompt-library --no-color`
-
-```text
- Dependency Updated 
-- Action: added
-
-Dependency Diff
-| Field   | Old | New                                                             |
-|---------|-----|-----------------------------------------------------------------|
-| source  |     | local                                                           |
-| uri     |     |                                                                 |
-| path    |     | ../../../../../../Users/alex/Documents/rule-pack/prompt-library |
-| export  |     |                                                                 |
-| version |     |                                                                 |
-| ref     |     |                                                                 |
-
-OK Updated rulepack.json
-```
-
-### `rulepack deps install --no-color`
-
-```text
- Install Dependencies 
-
-Resolved Dependencies
-| # | Source | Ref/Path/Profile                                                | Export | Resolved | Hash/Commit  |
-|---|--------|-----------------------------------------------------------------|--------|----------|--------------|
-| 1 | local  | ../../../../../../Users/alex/Documents/rule-pack/prompt-library |        | local    | 049e4316e0f9 |
-
-Summary
-  git: 0
-  local: 1
-  lock file: rulepack.lock.json
-  profile: 0
-
-OK Install complete
-```
-
-### `rulepack build --no-color`
-
-```text
- Build Outputs 
-
-Build Targets
-| Target  | Output                          | Status |
-|---------|---------------------------------|--------|
-| cursor  | .cursor/rules                   | ok     |
-| copilot | .github/copilot-instructions.md | ok     |
-| codex   | .codex/rules.md                 | ok     |
-
-Summary
-  duplicates: none
-  moduleCount: 7
-  overrides: 0
-
-OK Build complete
-```
-
-### `rulepack doctor --no-color`
-
-```text
- Diagnostics 
-
-Checks
-| Check          | Status | Details                        |
-|----------------|--------|--------------------------------|
-| ruleset file   | ok     |                                |
-| ruleset parse  | ok     |                                |
-| lockfile       | ok     |                                |
-| lock alignment | ok     |                                |
-| profile store  | ok     | /Users/alex/.rulepack/profiles |
-| git client     | ok     |                                |
-
-OK Doctor run complete
-```
+| Target | Default output path |
+| --- | --- |
+| `cursor` | `.cursor/rules/` |
+| `copilot` | `.github/copilot-instructions.md` |
+| `codex` | `.codex/rules.md` |
 
 ## Advanced Workflows
 
@@ -369,7 +282,7 @@ rulepack profile diff python-a --rule python.* --rule ml.*
 | Area | Support |
 | --- | --- |
 | Install channels | Homebrew cask, Ubuntu PPA, source build |
-| Output targets | `cursor`, `copilot`, `codex`, `all` |
+| Output targets | `cursor\|copilot\|codex\|all` |
 | Source types | `git`, `local`, `profile` |
 | Lockfile | `rulepack.lock.json` for deterministic resolution |
 | Human/machine output | human (default), `--json` |
@@ -398,6 +311,12 @@ rulepack profile diff python-a --rule python.* --rule ml.*
 
 - Add `--yes` for operations that can require confirmation in non-interactive or `--json` mode.
 - Use this carefully in CI where no prompt interaction is available.
+
+### Common mistakes
+
+- Running `rulepack build` before `rulepack deps install`.
+- Using an `--export` name that does not exist in the dependency's `rulepack.json`.
+- Editing a local dependency and forgetting to re-run `rulepack deps install`.
 
 ## Build From Source (Go)
 
@@ -459,6 +378,7 @@ Rules:
 ### 2) Define a valid root `rulepack.json`
 
 Required top-level fields are `specVersion`, `name`, and `version` (non-empty strings).
+Concrete example from this repo: [prompt-library/rulepack.json](./prompt-library/rulepack.json).
 
 Starter template:
 
@@ -535,39 +455,19 @@ rulepack deps install
 rulepack build
 ```
 
-### 6) Publishing and compatibility checklist
-
-- Tag versions in your prompt repo so consumers can pin with `--version` or `--ref`.
-- Do not rename module IDs casually; consumers may target them in exports, rules, and profiles.
-- Keep `exports` stable and additive when possible.
-- Re-run `deps install` + `build` in a clean test project before releasing changes.
-- Document your available exports in your repo README.
-
 ## File Reference
 
 - Spec: [docs/rulepack-spec.md](./docs/rulepack-spec.md)
 - Example setup: [examples/README.md](./examples/README.md)
 
-## README Conventions (for contributors)
-
-- Keep executable snippets copy-safe (no prompt symbol in `bash` blocks).
-- Prefer compact tables for command references.
-- Use callouts for high-signal guidance:
-  - `[!TIP]` for shortcuts
-  - `[!NOTE]` for defaults/fallbacks
-  - `[!WARNING]` for risky or confirmation-sensitive operations
-- Put deep detail in `<details>` blocks to keep first-read flow concise.
-- Keep placeholder repository values in `your-org/your-rules` style.
-- Only include output blocks when copied from verified CLI runs.
 
 ## Contributors
 
 Contributions are welcome.
 
 - Open an issue first for bugs, UX pain points, or feature proposals.
-- Send a PR with a clear description of user impact and behavior changes.
+- Send a PR with a clear description of the user impact.
 - Include or update tests for CLI behavior changes (`human` and `--json` modes).
-- For automation-focused changes, prefer deterministic outputs and document JSON shape updates.
 
 ## License
 
