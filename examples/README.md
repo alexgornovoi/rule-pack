@@ -20,6 +20,7 @@ Expected outputs are written under `examples/selfhost`:
 - `.cursor/rules/`
 - `.github/copilot-instructions.md`
 - `.codex/rules.md`
+- `.claude/rules/`
 
 To test local drift detection:
 

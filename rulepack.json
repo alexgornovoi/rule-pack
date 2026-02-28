@@ -13,6 +13,11 @@
     "codex": {
       "outFile": ".codex/rules.md"
     },
+    "claude": {
+      "outDir": ".claude/rules",
+      "perModule": true,
+      "ext": ".md"
+    },
     "copilot": {
       "outFile": ".github/copilot-instructions.md"
     },

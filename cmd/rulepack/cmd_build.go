@@ -170,6 +170,15 @@ func (a *app) newBuildCmd() *cobra.Command {
 						return err
 					}
 					targetRows = append(targetRows, buildTargetRow{Target: t, Output: entry.OutFile, Status: "ok"})
+				case "claude":
+					if err := render.WriteClaude(entry, modules); err != nil {
+						return err
+					}
+					outDir := entry.OutDir
+					if outDir == "" {
+						outDir = ".claude/rules"
+					}
+					targetRows = append(targetRows, buildTargetRow{Target: t, Output: outDir, Status: "ok"})
 				default:
 					return fmt.Errorf("unsupported target %q", t)
 				}
@@ -198,7 +207,7 @@ func (a *app) newBuildCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", "all", "target: cursor|copilot|codex|all")
+	cmd.Flags().StringVar(&target, "target", "all", "target: cursor|copilot|codex|claude|all")
 	cmd.Flags().BoolVar(&yes, "yes", false, "confirm risky overwrites without prompting")
 	return cmd
 }

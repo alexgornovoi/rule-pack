@@ -102,6 +102,23 @@ func TestLoadLockfileRejectsMissingSource(t *testing.T) {
 	}
 }
 
+func TestDefaultRulesetIncludesClaudeTarget(t *testing.T) {
+	cfg := DefaultRuleset("demo")
+	claude, ok := cfg.Targets["claude"]
+	if !ok {
+		t.Fatalf("expected claude target in defaults")
+	}
+	if claude.OutDir != ".claude/rules" {
+		t.Fatalf("expected .claude/rules output, got %q", claude.OutDir)
+	}
+	if !claude.PerModule {
+		t.Fatalf("expected claude perModule=true by default")
+	}
+	if claude.Ext != ".md" {
+		t.Fatalf("expected claude ext .md, got %q", claude.Ext)
+	}
+}
+
 func writeTempFile(t *testing.T, name, content string) string {
 	t.Helper()
 	dir := t.TempDir()

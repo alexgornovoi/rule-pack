@@ -2,7 +2,9 @@ package render
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -39,18 +41,37 @@ func WriteCursor(target config.TargetEntry, modules []pack.Module) error {
 		cursorModules = append(cursorModules, m)
 	}
 	if target.PerModule {
+		planned := make([]struct {
+			module pack.Module
+			rule   cursorApplyRule
+			path   string
+		}, 0, len(cursorModules))
+		pathToModule := make(map[string]string, len(cursorModules))
 		for _, m := range cursorModules {
 			rule, err := resolveCursorApplyRule(m)
 			if err != nil {
 				return err
 			}
-			name := fmt.Sprintf("%03d-%s%s", m.Priority, sanitizeID(m.ID), ext)
-			fullPath := filepath.Join(target.OutDir, name)
-			content, err := cursorPerModuleContent(ext, m, rule)
+			fullPath := targetModuleFullPath(target.OutDir, m, ext)
+			if existingID, ok := pathToModule[fullPath]; ok {
+				return fmt.Errorf("cursor output collision: modules %s and %s both map to %s", existingID, m.ID, fullPath)
+			}
+			pathToModule[fullPath] = m.ID
+			planned = append(planned, struct {
+				module pack.Module
+				rule   cursorApplyRule
+				path   string
+			}{module: m, rule: rule, path: fullPath})
+		}
+		for _, item := range planned {
+			if err := os.MkdirAll(filepath.Dir(item.path), 0o755); err != nil {
+				return err
+			}
+			content, err := cursorPerModuleContent(ext, item.module, item.rule)
 			if err != nil {
 				return err
 			}
-			if err := os.WriteFile(fullPath, []byte(normalize(content)), 0o644); err != nil {
+			if err := os.WriteFile(item.path, []byte(normalize(content)), 0o644); err != nil {
 				return err
 			}
 		}
@@ -92,6 +113,48 @@ func CursorUnmanagedOverwrites(target config.TargetEntry, modules []pack.Module)
 	return out, nil
 }
 
+func WriteClaude(target config.TargetEntry, modules []pack.Module) error {
+	if target.OutFile != "" {
+		return fmt.Errorf("claude target does not support outFile; use outDir")
+	}
+	if !target.PerModule {
+		return fmt.Errorf("claude target requires perModule=true")
+	}
+	ext := target.Ext
+	if ext == "" {
+		ext = ".md"
+	}
+	if target.OutDir == "" {
+		target.OutDir = ".claude/rules"
+	}
+	if err := os.MkdirAll(target.OutDir, 0o755); err != nil {
+		return err
+	}
+	pathToModule := make(map[string]string, len(modules))
+	for _, m := range modules {
+		rule, err := resolveClaudeApplyRule(m)
+		if err != nil {
+			return err
+		}
+		if rule.Mode == "never" {
+			continue
+		}
+		fullPath := targetModuleFullPath(target.OutDir, m, ext)
+		if existingID, ok := pathToModule[fullPath]; ok {
+			return fmt.Errorf("claude output collision: modules %s and %s both map to %s", existingID, m.ID, fullPath)
+		}
+		pathToModule[fullPath] = m.ID
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			return err
+		}
+		content := claudePerModuleContent(m, rule)
+		if err := os.WriteFile(fullPath, []byte(normalize(content)), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func WriteMerged(outFile string, modules []pack.Module) error {
 	if outFile == "" {
 		return fmt.Errorf("missing output file")
@@ -124,6 +187,8 @@ func PreviewManagedCleanup(targets map[string]config.TargetEntry) ([]string, []s
 			targetDelete, targetSkip, err = previewCursorCleanup(entry)
 		case "copilot", "codex":
 			targetDelete, targetSkip, err = previewMergedCleanup(entry)
+		case "claude":
+			targetDelete, targetSkip, err = previewClaudeCleanup(entry)
 		default:
 			continue
 		}
@@ -184,6 +249,57 @@ func sanitizeID(id string) string {
 	return sanitizeRe.ReplaceAllString(id, "_")
 }
 
+func normalizedModulePath(modulePath string) string {
+	p := strings.ReplaceAll(strings.TrimSpace(modulePath), "\\", "/")
+	p = strings.TrimPrefix(p, "./")
+	p = path.Clean(p)
+	if p == "." || p == "/" {
+		return ""
+	}
+	if strings.HasPrefix(p, "modules/") {
+		p = strings.TrimPrefix(p, "modules/")
+	}
+	if strings.HasPrefix(p, "../") || p == ".." {
+		return ""
+	}
+	return strings.TrimPrefix(p, "/")
+}
+
+func nestedOutputDirFromModulePath(modulePath string) string {
+	p := normalizedModulePath(modulePath)
+	if p == "" {
+		return ""
+	}
+	dir := path.Dir(p)
+	if dir == "." || dir == "/" {
+		return ""
+	}
+	return filepath.FromSlash(strings.TrimPrefix(dir, "/"))
+}
+
+func targetModuleFilename(module pack.Module, ext string) string {
+	base := ""
+	if module.Path != "" {
+		moduleBase := path.Base(normalizedModulePath(module.Path))
+		moduleBase = strings.TrimSuffix(moduleBase, path.Ext(moduleBase))
+		base = moduleBase
+	}
+	if base == "" {
+		base = sanitizeID(module.ID)
+	}
+	base = sanitizeID(base)
+	return fmt.Sprintf("%03d-%s%s", module.Priority, base, ext)
+}
+
+func targetModuleFullPath(outDir string, module pack.Module, ext string) string {
+	nested := nestedOutputDirFromModulePath(module.Path)
+	name := targetModuleFilename(module, ext)
+	if nested == "" {
+		return filepath.Join(outDir, name)
+	}
+	return filepath.Join(outDir, nested, name)
+}
+
 func normalize(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
@@ -194,6 +310,11 @@ type cursorApplyRule struct {
 	Mode        string
 	Description string
 	Globs       []string
+}
+
+type claudeApplyRule struct {
+	Mode  string
+	Globs []string
 }
 
 func resolveCursorApplyRule(m pack.Module) (cursorApplyRule, error) {
@@ -241,6 +362,56 @@ func cursorPerModuleContent(ext string, m pack.Module, rule cursorApplyRule) (st
 	return b.String(), nil
 }
 
+func resolveClaudeApplyRule(m pack.Module) (claudeApplyRule, error) {
+	var rule pack.ApplyRule
+	if targetRule, ok := m.Apply.Targets["claude"]; ok {
+		rule = targetRule
+	} else if m.Apply.Default != nil {
+		rule = *m.Apply.Default
+	}
+	mode := strings.ToLower(strings.TrimSpace(rule.Mode))
+	if mode == "" {
+		mode = "always"
+	}
+	out := claudeApplyRule{
+		Mode:  mode,
+		Globs: append([]string(nil), rule.Globs...),
+	}
+	switch mode {
+	case "always", "never", "agent", "glob", "manual":
+	default:
+		return claudeApplyRule{}, fmt.Errorf("unsupported claude apply mode %q for module %s", rule.Mode, m.ID)
+	}
+	if mode == "glob" && len(out.Globs) == 0 {
+		return claudeApplyRule{}, fmt.Errorf("claude apply mode glob requires globs for module %s", m.ID)
+	}
+	if mode == "always" || mode == "never" || mode == "agent" || mode == "manual" {
+		out.Globs = nil
+	}
+	return out, nil
+}
+
+func claudePerModuleContent(m pack.Module, rule claudeApplyRule) string {
+	var b strings.Builder
+	if rule.Mode == "glob" {
+		b.WriteString("---\n")
+		b.WriteString("paths:\n")
+		globs := append([]string(nil), rule.Globs...)
+		sort.Strings(globs)
+		for _, g := range globs {
+			b.WriteString("  - ")
+			b.WriteString(quoteYAML(g))
+			b.WriteString("\n")
+		}
+		b.WriteString("---\n")
+		b.WriteString("\n")
+	}
+	b.WriteString(provenanceHeader(m))
+	b.WriteString("\n")
+	b.WriteString(m.Content)
+	return b.String()
+}
+
 func cursorWritePaths(target config.TargetEntry, modules []pack.Module) ([]string, error) {
 	ext := target.Ext
 	if ext == "" {
@@ -262,9 +433,14 @@ func cursorWritePaths(target config.TargetEntry, modules []pack.Module) ([]strin
 	}
 	if target.PerModule {
 		out := make([]string, 0, len(cursorModules))
+		pathToModule := make(map[string]string, len(cursorModules))
 		for _, m := range cursorModules {
-			name := fmt.Sprintf("%03d-%s%s", m.Priority, sanitizeID(m.ID), ext)
-			out = append(out, filepath.Join(target.OutDir, name))
+			fullPath := targetModuleFullPath(target.OutDir, m, ext)
+			if existingID, ok := pathToModule[fullPath]; ok {
+				return nil, fmt.Errorf("cursor output collision: modules %s and %s both map to %s", existingID, m.ID, fullPath)
+			}
+			pathToModule[fullPath] = m.ID
+			out = append(out, fullPath)
 		}
 		return out, nil
 	}
@@ -302,31 +478,7 @@ func previewCursorCleanup(target config.TargetEntry) ([]string, []string, error)
 		target.OutDir = ".cursor/rules"
 	}
 	if target.PerModule {
-		entries, err := os.ReadDir(target.OutDir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil, nil, nil
-			}
-			return nil, nil, err
-		}
-		deletable := make([]string, 0)
-		skipped := make([]string, 0)
-		for _, entry := range entries {
-			if entry.IsDir() || filepath.Ext(entry.Name()) != ext {
-				continue
-			}
-			fullPath := filepath.Join(target.OutDir, entry.Name())
-			data, err := os.ReadFile(fullPath)
-			if err != nil {
-				return nil, nil, err
-			}
-			if isRulepackManagedCursorContent(string(data)) {
-				deletable = append(deletable, fullPath)
-				continue
-			}
-			skipped = append(skipped, fullPath)
-		}
-		return deletable, skipped, nil
+		return previewPerModuleCleanup(target.OutDir, ext, isRulepackManagedCursorContent)
 	}
 	if target.OutFile == "" {
 		target.OutFile = filepath.Join(target.OutDir, "rules"+ext)
@@ -359,6 +511,53 @@ func previewMergedCleanup(target config.TargetEntry) ([]string, []string, error)
 		return []string{target.OutFile}, nil, nil
 	}
 	return nil, []string{target.OutFile}, nil
+}
+
+func previewClaudeCleanup(target config.TargetEntry) ([]string, []string, error) {
+	ext := target.Ext
+	if ext == "" {
+		ext = ".md"
+	}
+	if target.OutDir == "" {
+		target.OutDir = ".claude/rules"
+	}
+	return previewPerModuleCleanup(target.OutDir, ext, isRulepackManagedCursorContent)
+}
+
+func previewPerModuleCleanup(outDir, ext string, isManaged func(string) bool) ([]string, []string, error) {
+	info, err := os.Stat(outDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	if !info.IsDir() {
+		return nil, nil, nil
+	}
+	deletable := make([]string, 0)
+	skipped := make([]string, 0)
+	if err := filepath.WalkDir(outDir, func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() || filepath.Ext(d.Name()) != ext {
+			return nil
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if isManaged(string(data)) {
+			deletable = append(deletable, p)
+			return nil
+		}
+		skipped = append(skipped, p)
+		return nil
+	}); err != nil {
+		return nil, nil, err
+	}
+	return deletable, skipped, nil
 }
 
 func cursorFrontmatter(rule cursorApplyRule, m pack.Module) string {

@@ -32,18 +32,19 @@ Top-level schema:
   - `id` (string, required): module ID to override.
   - `priority` (number, optional): replacement priority.
 - `targets` (object map):
-  - Key is target name (`cursor`, `copilot`, `codex`).
+  - Key is target name (`cursor`, `copilot`, `codex`, `claude`).
   - Value:
     - `outDir` (string, optional)
     - `outFile` (string, optional)
-    - `perModule` (bool, optional; used by cursor renderer)
-    - `ext` (string, optional; used by cursor renderer)
+    - `perModule` (bool, optional; used by cursor/claude renderers)
+    - `ext` (string, optional; used by cursor/claude renderers)
 
 ### Target defaults from `rulepack init`
 
 - `cursor`: `outDir=.cursor/rules`, `perModule=true`, `ext=.mdc`
 - `copilot`: `outFile=.github/copilot-instructions.md`
 - `codex`: `outFile=.codex/rules.md`
+- `claude`: `outDir=.claude/rules`, `perModule=true`, `ext=.md`
 
 ## `rulepack.lock.json`
 
@@ -309,6 +310,9 @@ If `perModule=true`:
   - provenance header comment
   - blank line
   - module content
+- Output path preserves nested module structure:
+  - source `modules/backend/api/auth.md` -> `.cursor/rules/backend/api/100-auth.mdc`
+  - leading `modules/` is stripped when deriving nested folders.
 
 If `perModule=false`:
 
@@ -324,6 +328,21 @@ If `perModule=false`:
 
 - Writes merged output to configured `outFile`.
 - No provenance headers.
+
+### Claude (`target=claude`)
+
+- Writes one file per module into `outDir` (`.claude/rules` by default).
+- Default extension is `.md`.
+- Per-file content includes a provenance header comment followed by module content.
+- Claude target configuration supports `outDir`, `perModule=true`, and `ext`; `outFile` is unsupported.
+- Output path preserves nested module structure:
+  - source `modules/backend/api/auth.md` -> `.claude/rules/backend/api/100-auth.md`
+  - leading `modules/` is stripped when deriving nested folders.
+- Claude apply-mode mapping:
+  - `never`: module is omitted from Claude output.
+  - `glob`: writes YAML frontmatter with `paths` derived from `globs`.
+  - `always`, `agent`, `manual`: writes unconditional rule files (no `paths` frontmatter).
+- For both cursor/claude per-module outputs, build fails if multiple modules resolve to the same output path.
 
 ## Content normalization
 

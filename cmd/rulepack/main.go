@@ -22,7 +22,7 @@ import (
 func resolveTargets(target string) []string {
 	target = strings.ToLower(target)
 	if target == "" || target == "all" {
-		return []string{"cursor", "copilot", "codex"}
+		return []string{"cursor", "copilot", "codex", "claude"}
 	}
 	return []string{target}
 }

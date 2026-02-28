@@ -157,6 +157,247 @@ func TestBuildCommandJSON_RequiresYesOnCursorOverwriteCollision(t *testing.T) {
 	}
 }
 
+func TestBuildCommandJSON_ClaudeTargetWritesPerModuleOutput(t *testing.T) {
+	projectDir := t.TempDir()
+	sourceDir := createLocalSourcePackWithID(t, "python.base", "base rule\n")
+	relSource, _ := filepath.Rel(projectDir, sourceDir)
+	cfg := config.DefaultRuleset("proj")
+	cfg.Dependencies = []config.Dependency{
+		{Source: "local", Path: filepath.ToSlash(relSource), Export: "default"},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var installEnv jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsInstallCmd(), &installEnv); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newBuildCmd(), &env, "--target", "claude"); err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+
+	outFile := filepath.Join(projectDir, ".claude", "rules", "100-python_base.md")
+	content, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("read claude output: %v", err)
+	}
+	if !strings.HasPrefix(string(content), "<!-- pack=") {
+		t.Fatalf("expected provenance header in claude output, got %q", string(content))
+	}
+}
+
+func TestBuildCommandJSON_ClaudeTargetWritesNestedOutput(t *testing.T) {
+	projectDir := t.TempDir()
+	sourceDir := createLocalSourcePackWithManifest(t, map[string]string{
+		"modules/backend/api/auth.md": "auth rule\n",
+	}, `{
+  "specVersion": "0.1",
+  "name": "source-pack",
+  "version": "1.0.0",
+  "modules": [
+    { "id": "backend.api.auth", "path": "modules/backend/api/auth.md", "priority": 100 }
+  ],
+  "exports": { "default": { "include": ["**"] } }
+}`)
+	relSource, _ := filepath.Rel(projectDir, sourceDir)
+	cfg := config.DefaultRuleset("proj")
+	cfg.Dependencies = []config.Dependency{
+		{Source: "local", Path: filepath.ToSlash(relSource), Export: "default"},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var installEnv jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsInstallCmd(), &installEnv); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newBuildCmd(), &env, "--target", "claude"); err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	outFile := filepath.Join(projectDir, ".claude", "rules", "backend", "api", "100-auth.md")
+	if _, err := os.Stat(outFile); err != nil {
+		t.Fatalf("expected nested claude output, stat err=%v", err)
+	}
+}
+
+func TestBuildCommandJSON_CursorTargetWritesNestedOutput(t *testing.T) {
+	projectDir := t.TempDir()
+	sourceDir := createLocalSourcePackWithManifest(t, map[string]string{
+		"modules/backend/api/auth.md": "auth rule\n",
+	}, `{
+  "specVersion": "0.1",
+  "name": "source-pack",
+  "version": "1.0.0",
+  "modules": [
+    { "id": "backend.api.auth", "path": "modules/backend/api/auth.md", "priority": 100 }
+  ],
+  "exports": { "default": { "include": ["**"] } }
+}`)
+	relSource, _ := filepath.Rel(projectDir, sourceDir)
+	cfg := config.DefaultRuleset("proj")
+	cfg.Dependencies = []config.Dependency{
+		{Source: "local", Path: filepath.ToSlash(relSource), Export: "default"},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var installEnv jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsInstallCmd(), &installEnv); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newBuildCmd(), &env, "--target", "cursor"); err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	outFile := filepath.Join(projectDir, ".cursor", "rules", "backend", "api", "100-auth.mdc")
+	if _, err := os.Stat(outFile); err != nil {
+		t.Fatalf("expected nested cursor output, stat err=%v", err)
+	}
+}
+
+func TestBuildCommandJSON_ClaudeTargetNeverSkipsModuleFile(t *testing.T) {
+	projectDir := t.TempDir()
+	sourceDir := createLocalSourcePackWithManifest(t, map[string]string{
+		"modules/never.md": "never\n",
+		"modules/keep.md":  "keep\n",
+	}, `{
+  "specVersion": "0.1",
+  "name": "source-pack",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "id": "a.never",
+      "path": "modules/never.md",
+      "priority": 100,
+      "apply": { "targets": { "claude": { "mode": "never" } } }
+    },
+    { "id": "b.keep", "path": "modules/keep.md", "priority": 110 }
+  ],
+  "exports": { "default": { "include": ["**"] } }
+}`)
+	relSource, _ := filepath.Rel(projectDir, sourceDir)
+	cfg := config.DefaultRuleset("proj")
+	cfg.Dependencies = []config.Dependency{{Source: "local", Path: filepath.ToSlash(relSource), Export: "default"}}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var installEnv jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsInstallCmd(), &installEnv); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newBuildCmd(), &env, "--target", "claude"); err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "rules", "100-never.md")); !os.IsNotExist(err) {
+		t.Fatalf("expected never file to be skipped, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "rules", "110-keep.md")); err != nil {
+		t.Fatalf("expected keep file to exist, stat err=%v", err)
+	}
+}
+
+func TestBuildCommandJSON_ClaudeTargetGlobIncludesPathsFrontmatter(t *testing.T) {
+	projectDir := t.TempDir()
+	sourceDir := createLocalSourcePackWithManifest(t, map[string]string{
+		"modules/api.md": "api\n",
+	}, `{
+  "specVersion": "0.1",
+  "name": "source-pack",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "id": "api.rule",
+      "path": "modules/api.md",
+      "priority": 100,
+      "apply": { "targets": { "claude": { "mode": "glob", "globs": ["src/api/**/*.ts"] } } }
+    }
+  ],
+  "exports": { "default": { "include": ["**"] } }
+}`)
+	relSource, _ := filepath.Rel(projectDir, sourceDir)
+	cfg := config.DefaultRuleset("proj")
+	cfg.Dependencies = []config.Dependency{{Source: "local", Path: filepath.ToSlash(relSource), Export: "default"}}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var installEnv jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsInstallCmd(), &installEnv); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newBuildCmd(), &env, "--target", "claude"); err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(projectDir, ".claude", "rules", "100-api.md"))
+	if err != nil {
+		t.Fatalf("read claude file: %v", err)
+	}
+	got := string(content)
+	if !strings.HasPrefix(got, "---\npaths:\n") || !strings.Contains(got, "\"src/api/**/*.ts\"") {
+		t.Fatalf("expected paths frontmatter, got %q", got)
+	}
+}
+
+func TestBuildCommandJSON_ClaudeTargetRejectsOutFile(t *testing.T) {
+	projectDir := t.TempDir()
+	sourceDir := createLocalSourcePackWithID(t, "python.base", "base rule\n")
+	relSource, _ := filepath.Rel(projectDir, sourceDir)
+	cfg := config.DefaultRuleset("proj")
+	cfg.Dependencies = []config.Dependency{{Source: "local", Path: filepath.ToSlash(relSource), Export: "default"}}
+	cfg.Targets["claude"] = config.TargetEntry{OutFile: "CLAUDE.md"}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var installEnv jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsInstallCmd(), &installEnv); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+	var env jsonEnvelope
+	err := runCmdJSON(t, projectDir, a.newBuildCmd(), &env, "--target", "claude")
+	if err == nil || !strings.Contains(err.Error(), "claude target does not support outFile; use outDir") {
+		t.Fatalf("expected outFile validation error, got %v", err)
+	}
+}
+
+func TestBuildCommandJSON_ClaudeTargetRejectsPerModuleFalse(t *testing.T) {
+	projectDir := t.TempDir()
+	sourceDir := createLocalSourcePackWithID(t, "python.base", "base rule\n")
+	relSource, _ := filepath.Rel(projectDir, sourceDir)
+	cfg := config.DefaultRuleset("proj")
+	cfg.Dependencies = []config.Dependency{{Source: "local", Path: filepath.ToSlash(relSource), Export: "default"}}
+	cfg.Targets["claude"] = config.TargetEntry{OutDir: ".claude/rules", PerModule: false, Ext: ".md"}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var installEnv jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsInstallCmd(), &installEnv); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+	var env jsonEnvelope
+	err := runCmdJSON(t, projectDir, a.newBuildCmd(), &env, "--target", "claude")
+	if err == nil || !strings.Contains(err.Error(), "claude target requires perModule=true") {
+		t.Fatalf("expected perModule validation error, got %v", err)
+	}
+}
+
 func TestAddCommandJSON_RequiresYesWhenReplacingDependency(t *testing.T) {
 	projectDir := t.TempDir()
 	cfg := config.Ruleset{
@@ -1135,6 +1376,24 @@ func createLocalSourcePackWithID(t *testing.T, moduleID string, moduleContent st
   }
 }`
 	if err := os.WriteFile(filepath.Join(root, "rulepack.json"), []byte(rulepackContent), 0o644); err != nil {
+		t.Fatalf("write source rulepack: %v", err)
+	}
+	return root
+}
+
+func createLocalSourcePackWithManifest(t *testing.T, files map[string]string, manifest string) string {
+	t.Helper()
+	root := t.TempDir()
+	for relPath, content := range files {
+		fullPath := filepath.Join(root, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("mkdir source path: %v", err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+			t.Fatalf("write source file: %v", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "rulepack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatalf("write source rulepack: %v", err)
 	}
 	return root

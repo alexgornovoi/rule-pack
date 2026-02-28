@@ -75,6 +75,11 @@ func DefaultRuleset(name string) Ruleset {
 			"codex": {
 				OutFile: ".codex/rules.md",
 			},
+			"claude": {
+				OutDir:    ".claude/rules",
+				PerModule: true,
+				Ext:       ".md",
+			},
 		},
 	}
 }
