@@ -85,6 +85,23 @@ sudo apt update
 sudo apt install rulepack
 ```
 
+### Build from source (Go)
+
+Clone and build:
+
+```bash
+git clone https://github.com/alexgornovoi/rule-pack.git
+cd rule-pack
+go build -o bin/rulepack ./cmd/rulepack
+./bin/rulepack --help
+```
+
+Run without building (development only):
+
+```bash
+go run ./cmd/rulepack --help
+```
+
 ## Core Workflow Recipes
 
 > [!NOTE]
@@ -318,23 +335,6 @@ rulepack profile diff python-a --rule python.* --rule ml.*
 - Using an `--export` name that does not exist in the dependency's `rulepack.json`.
 - Editing a local dependency and forgetting to re-run `rulepack deps install`.
 
-## Build From Source (Go)
-
-Clone and build:
-
-```bash
-git clone https://github.com/alexgornovoi/rule-pack.git
-cd rule-pack
-go build -o bin/rulepack ./cmd/rulepack
-./bin/rulepack --help
-```
-
-Run without building (development only):
-
-```bash
-go run ./cmd/rulepack --help
-```
-
 ## Output Behavior
 
 - Module content is normalized to LF newlines.
@@ -459,7 +459,6 @@ rulepack build
 
 - Spec: [docs/rulepack-spec.md](./docs/rulepack-spec.md)
 - Example setup: [examples/README.md](./examples/README.md)
-
 
 ## Contributors
 
