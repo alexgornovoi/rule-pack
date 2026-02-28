@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -77,9 +78,13 @@ func SaveSnapshot(input SaveInput) (Metadata, error) {
 	}
 
 	modules := make([]snapshotModule, 0, len(input.Modules))
+	pathToModule := make(map[string]string, len(input.Modules))
 	for _, m := range input.Modules {
-		name := fmt.Sprintf("%03d-%s.md", m.Priority, sanitizeID(m.ID))
-		relPath := filepath.ToSlash(filepath.Join("modules", name))
+		relPath := snapshotModulePath(m)
+		if existingID, ok := pathToModule[relPath]; ok {
+			return Metadata{}, fmt.Errorf("profile output collision: modules %s and %s both map to %s", existingID, m.ID, relPath)
+		}
+		pathToModule[relPath] = m.ID
 		fullPath := filepath.Join(profileDir, filepath.FromSlash(relPath))
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 			return Metadata{}, err
@@ -281,6 +286,7 @@ func buildID(sources []SourceSnapshot, contentHash string) string {
 func ComputeContentHash(modules []pack.Module, export string) string {
 	type item struct {
 		ID          string
+		Path        string
 		Priority    int
 		Content     string
 		PackName    string
@@ -293,6 +299,7 @@ func ComputeContentHash(modules []pack.Module, export string) string {
 		applyJSON, _ := json.Marshal(m.Apply)
 		items = append(items, item{
 			ID:          m.ID,
+			Path:        m.Path,
 			Priority:    m.Priority,
 			Content:     m.Content,
 			PackName:    m.PackName,
@@ -315,6 +322,8 @@ func ComputeContentHash(modules []pack.Module, export string) string {
 		b.WriteString(it.ID)
 		b.WriteString("\npriority:")
 		b.WriteString(fmt.Sprintf("%d", it.Priority))
+		b.WriteString("\npath:")
+		b.WriteString(it.Path)
 		b.WriteString("\npack:")
 		b.WriteString(it.PackName)
 		b.WriteString("\nversion:")
@@ -347,6 +356,42 @@ func sanitizeID(s string) string {
 		b.WriteByte('_')
 	}
 	return b.String()
+}
+
+func normalizedModulePath(modulePath string) string {
+	p := strings.ReplaceAll(strings.TrimSpace(modulePath), "\\", "/")
+	p = strings.TrimPrefix(p, "./")
+	p = path.Clean(p)
+	if p == "." || p == "/" {
+		return ""
+	}
+	if strings.HasPrefix(p, "modules/") {
+		p = strings.TrimPrefix(p, "modules/")
+	}
+	if strings.HasPrefix(p, "../") || p == ".." {
+		return ""
+	}
+	return strings.TrimPrefix(p, "/")
+}
+
+func snapshotModulePath(m pack.Module) string {
+	modulePath := normalizedModulePath(m.Path)
+	moduleDir := path.Dir(modulePath)
+	if moduleDir == "." || moduleDir == "/" {
+		moduleDir = ""
+	}
+	base := ""
+	if modulePath != "" {
+		base = strings.TrimSuffix(path.Base(modulePath), path.Ext(modulePath))
+	}
+	if base == "" {
+		base = sanitizeID(m.ID)
+	}
+	name := fmt.Sprintf("%03d-%s.md", m.Priority, sanitizeID(base))
+	if moduleDir == "" {
+		return filepath.ToSlash(filepath.Join("modules", name))
+	}
+	return filepath.ToSlash(filepath.Join("modules", filepath.FromSlash(moduleDir), name))
 }
 
 func readProfile(profileDir string) (Metadata, error) {

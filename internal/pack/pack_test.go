@@ -41,6 +41,9 @@ func TestExpandLocalDependency_DefaultExportAndDeterministicHash(t *testing.T) {
 	if mods1[0].ID != "a.alpha" {
 		t.Fatalf("expected module a.alpha, got %s", mods1[0].ID)
 	}
+	if mods1[0].Path != "mods/a.md" {
+		t.Fatalf("expected module path mods/a.md, got %s", mods1[0].Path)
+	}
 	if hash1 != hash2 {
 		t.Fatalf("expected deterministic hash, got %s != %s", hash1, hash2)
 	}

@@ -53,6 +53,7 @@ type Module struct {
 	PackVersion string
 	Commit      string
 	ID          string
+	Path        string
 	Priority    int
 	Content     string
 	Apply       ApplyConfig
@@ -141,6 +142,7 @@ func expandDependencyWithHash(reader fileReader, dep config.Dependency, commit s
 			PackVersion: rp.Version,
 			Commit:      commit,
 			ID:          m.ID,
+			Path:        m.Path,
 			Priority:    m.Priority,
 			Content:     content,
 			Apply:       m.Apply,

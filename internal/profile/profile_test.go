@@ -1,6 +1,8 @@
 package profile
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -79,6 +81,76 @@ func TestAliasCollision(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("expected duplicate alias error, got %v", err)
+	}
+}
+
+func TestSaveSnapshot_PreservesNestedModulePath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	modules := []pack.Module{
+		{
+			PackName:    "x",
+			PackVersion: "1.0.0",
+			Commit:      "abc",
+			ID:          "backend.api.auth",
+			Path:        "modules/backend/api/auth.md",
+			Priority:    100,
+			Content:     "a\n",
+		},
+	}
+	meta, err := SaveSnapshot(SaveInput{
+		Alias: "py",
+		Sources: []SourceSnapshot{{
+			SourceType:   "git",
+			SourceRef:    "https://example.com/a.git",
+			SourceExport: "python",
+			ModuleIDs:    []string{"backend.api.auth"},
+		}},
+		ContentHash: ComputeContentHash(modules, "python"),
+		Modules:     modules,
+	})
+	if err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+	root, err := GlobalRoot()
+	if err != nil {
+		t.Fatalf("GlobalRoot: %v", err)
+	}
+	outPath := filepath.Join(root, meta.ID, "modules", "backend", "api", "100-auth.md")
+	if _, err := os.Stat(outPath); err != nil {
+		t.Fatalf("expected nested profile module path, stat err=%v", err)
+	}
+}
+
+func TestSaveSnapshot_DetectsNestedPathCollision(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	modules := []pack.Module{
+		{ID: "a.one", Path: "modules/backend/api/auth.md", Priority: 100, Content: "a\n"},
+		{ID: "b.two", Path: "modules/backend/api/auth.txt", Priority: 100, Content: "b\n"},
+	}
+	_, err := SaveSnapshot(SaveInput{
+		Alias: "py",
+		Sources: []SourceSnapshot{{
+			SourceType:   "git",
+			SourceRef:    "https://example.com/a.git",
+			SourceExport: "python",
+			ModuleIDs:    []string{"a.one", "b.two"},
+		}},
+		ContentHash: ComputeContentHash(modules, "python"),
+		Modules:     modules,
+	})
+	if err == nil || !strings.Contains(err.Error(), "profile output collision") {
+		t.Fatalf("expected profile collision error, got %v", err)
+	}
+}
+
+func TestComputeContentHash_ChangesWhenPathChanges(t *testing.T) {
+	base := pack.Module{ID: "a", Priority: 1, Content: "a\n", Path: "modules/one/a.md"}
+	other := base
+	other.Path = "modules/two/a.md"
+	hashA := ComputeContentHash([]pack.Module{base}, "python")
+	hashB := ComputeContentHash([]pack.Module{other}, "python")
+	if hashA == hashB {
+		t.Fatalf("expected hash to change when module path changes")
 	}
 }
 
