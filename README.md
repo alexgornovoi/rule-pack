@@ -33,7 +33,7 @@ rulepack build
 > [!TIP]
 > Replace `https://github.com/your-org/your-rules.git` with your own rules repository URL.
 
-![Terminal quickstart demo](docs/assets/quickstart-demo.svg)
+![Terminal quickstart demo](docs/assets/quickstart-demo.gif)
 
 _Quickstart flow preview: init -> deps add -> deps install -> build._
 
