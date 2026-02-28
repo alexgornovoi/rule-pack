@@ -137,7 +137,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${PPA_TARGET}" ]]; then
-            echo "PPA_TARGET is required (example: ppa:alexgornovoi/rulepack)"
+            echo "PPA_TARGET is required (example: ppa:agornovoi/rulepack)"
             exit 1
           fi
           changes_file="$(ls -1 ../rulepack_*_source.changes | head -n1)"
