@@ -14,6 +14,8 @@ import (
 
 var sanitizeRe = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
 
+const mergedManagedHeader = "<!-- rulepack:managed -->"
+
 func WriteCursor(target config.TargetEntry, modules []pack.Module) error {
 	ext := target.Ext
 	if ext == "" {
@@ -97,7 +99,61 @@ func WriteMerged(outFile string, modules []pack.Module) error {
 	if err := os.MkdirAll(filepath.Dir(outFile), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(outFile, []byte(normalize(merge(modules, false))), 0o644)
+	content := mergedManagedHeader + "\n" + normalize(merge(modules, false))
+	return os.WriteFile(outFile, []byte(content), 0o644)
+}
+
+func PreviewManagedCleanup(targets map[string]config.TargetEntry) ([]string, []string, error) {
+	if len(targets) == 0 {
+		return nil, nil, nil
+	}
+	targetNames := make([]string, 0, len(targets))
+	for name := range targets {
+		targetNames = append(targetNames, name)
+	}
+	sort.Strings(targetNames)
+	deletable := make([]string, 0)
+	skipped := make([]string, 0)
+	for _, name := range targetNames {
+		entry := targets[name]
+		var targetDelete []string
+		var targetSkip []string
+		var err error
+		switch name {
+		case "cursor":
+			targetDelete, targetSkip, err = previewCursorCleanup(entry)
+		case "copilot", "codex":
+			targetDelete, targetSkip, err = previewMergedCleanup(entry)
+		default:
+			continue
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		deletable = append(deletable, targetDelete...)
+		skipped = append(skipped, targetSkip...)
+	}
+	sort.Strings(deletable)
+	sort.Strings(skipped)
+	return deletable, skipped, nil
+}
+
+func CleanupManagedOutputs(targets map[string]config.TargetEntry) ([]string, []string, error) {
+	deletable, skipped, err := PreviewManagedCleanup(targets)
+	if err != nil {
+		return nil, nil, err
+	}
+	deleted := make([]string, 0, len(deletable))
+	for _, p := range deletable {
+		if err := os.Remove(p); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return deleted, skipped, err
+		}
+		deleted = append(deleted, p)
+	}
+	return deleted, skipped, nil
 }
 
 func merge(modules []pack.Module, includeProvenance bool) string {
@@ -231,6 +287,78 @@ func isRulepackManagedCursorContent(content string) bool {
 	return strings.Contains(content, "<!-- pack=") &&
 		strings.Contains(content, " module=") &&
 		strings.Contains(content, " priority=")
+}
+
+func isRulepackManagedMergedContent(content string) bool {
+	return strings.HasPrefix(content, mergedManagedHeader)
+}
+
+func previewCursorCleanup(target config.TargetEntry) ([]string, []string, error) {
+	ext := target.Ext
+	if ext == "" {
+		ext = ".mdc"
+	}
+	if target.OutDir == "" {
+		target.OutDir = ".cursor/rules"
+	}
+	if target.PerModule {
+		entries, err := os.ReadDir(target.OutDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, nil, nil
+			}
+			return nil, nil, err
+		}
+		deletable := make([]string, 0)
+		skipped := make([]string, 0)
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ext {
+				continue
+			}
+			fullPath := filepath.Join(target.OutDir, entry.Name())
+			data, err := os.ReadFile(fullPath)
+			if err != nil {
+				return nil, nil, err
+			}
+			if isRulepackManagedCursorContent(string(data)) {
+				deletable = append(deletable, fullPath)
+				continue
+			}
+			skipped = append(skipped, fullPath)
+		}
+		return deletable, skipped, nil
+	}
+	if target.OutFile == "" {
+		target.OutFile = filepath.Join(target.OutDir, "rules"+ext)
+	}
+	data, err := os.ReadFile(target.OutFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	if isRulepackManagedCursorContent(string(data)) {
+		return []string{target.OutFile}, nil, nil
+	}
+	return nil, []string{target.OutFile}, nil
+}
+
+func previewMergedCleanup(target config.TargetEntry) ([]string, []string, error) {
+	if target.OutFile == "" {
+		return nil, nil, nil
+	}
+	data, err := os.ReadFile(target.OutFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	if isRulepackManagedMergedContent(string(data)) {
+		return []string{target.OutFile}, nil, nil
+	}
+	return nil, []string{target.OutFile}, nil
 }
 
 func cursorFrontmatter(rule cursorApplyRule, m pack.Module) string {

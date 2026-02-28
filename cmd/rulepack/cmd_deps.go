@@ -20,7 +20,7 @@ func (a *app) newDepsCmd() *cobra.Command {
 	}
 	root.AddCommand(a.newDepsAddCmd())
 	root.AddCommand(a.newDepsListCmd())
-	root.AddCommand(a.newDepsRemoveCmd())
+	root.AddCommand(a.newDepsUninstallCmd())
 	root.AddCommand(a.newDepsInstallCmd())
 	root.AddCommand(a.newDepsOutdatedCmd())
 	return root

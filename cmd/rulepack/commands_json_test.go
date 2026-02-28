@@ -171,14 +171,14 @@ func TestAddCommandJSON_RequiresYesWhenReplacingDependency(t *testing.T) {
 	}
 	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
 	var env jsonEnvelope
-	err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "https://example.com/rules.git", "--export", "python")
+	err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "https://example.com/rules.git")
 	if err == nil {
 		t.Fatalf("expected add to fail without --yes when replacing dependency")
 	}
 	if !strings.Contains(err.Error(), "rerun with --yes") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "https://example.com/rules.git", "--export", "python", "--yes"); err != nil {
+	if err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "https://example.com/rules.git", "--yes"); err != nil {
 		t.Fatalf("add with --yes failed: %v", err)
 	}
 	var out addOutput
@@ -187,6 +187,39 @@ func TestAddCommandJSON_RequiresYesWhenReplacingDependency(t *testing.T) {
 	}
 	if out.Action != "replaced" {
 		t.Fatalf("expected replaced action, got %s", out.Action)
+	}
+}
+
+func TestAddCommandJSON_AllowsMultipleExportsSameSource(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "git", URI: "https://example.com/rules.git", Export: "python"},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "https://example.com/rules.git", "--export", "ml"); err != nil {
+		t.Fatalf("add second export failed: %v", err)
+	}
+	var out addOutput
+	if err := json.Unmarshal(env.Result, &out); err != nil {
+		t.Fatalf("unmarshal add result: %v", err)
+	}
+	if out.Action != "added" {
+		t.Fatalf("expected added action, got %s", out.Action)
+	}
+	newCfg, err := config.LoadRuleset(filepath.Join(projectDir, config.RulesetFileName))
+	if err != nil {
+		t.Fatalf("load ruleset: %v", err)
+	}
+	if len(newCfg.Dependencies) != 2 {
+		t.Fatalf("expected two dependencies, got %#v", newCfg.Dependencies)
 	}
 }
 
@@ -280,14 +313,14 @@ func TestAddCommandJSON_LocalReplacementRequiresYes(t *testing.T) {
 
 	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
 	var env jsonEnvelope
-	err = runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "--local", relLocal, "--export", "python")
+	err = runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "--local", relLocal)
 	if err == nil {
 		t.Fatalf("expected local replacement to require --yes")
 	}
 	if !strings.Contains(err.Error(), "rerun with --yes") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "--local", relLocal, "--export", "python", "--yes"); err != nil {
+	if err := runCmdJSON(t, projectDir, a.newDepsAddCmd(), &env, "--local", relLocal, "--yes"); err != nil {
 		t.Fatalf("add local with --yes failed: %v", err)
 	}
 }
@@ -343,7 +376,7 @@ func TestAddCommandJSON_LocalMissingRulepack(t *testing.T) {
 	}
 }
 
-func TestRemoveCommandJSON(t *testing.T) {
+func TestUninstallCommandJSON(t *testing.T) {
 	projectDir := t.TempDir()
 	cfg := config.Ruleset{
 		SpecVersion: "0.1",
@@ -360,16 +393,16 @@ func TestRemoveCommandJSON(t *testing.T) {
 
 	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
 	var env jsonEnvelope
-	if err := runCmdJSON(t, projectDir, a.newDepsRemoveCmd(), &env, "1", "abc123__python__01", "--yes"); err != nil {
-		t.Fatalf("remove failed: %v", err)
+	if err := runCmdJSON(t, projectDir, a.newDepsUninstallCmd(), &env, "1", "abc123__python__01", "--yes"); err != nil {
+		t.Fatalf("uninstall failed: %v", err)
 	}
-	if env.Command != "remove" {
+	if env.Command != "uninstall" {
 		t.Fatalf("unexpected command: %s", env.Command)
 	}
 
-	var out removeOutput
+	var out uninstallOutput
 	if err := json.Unmarshal(env.Result, &out); err != nil {
-		t.Fatalf("unmarshal remove result: %v", err)
+		t.Fatalf("unmarshal uninstall result: %v", err)
 	}
 	if len(out.Removed) != 2 {
 		t.Fatalf("expected 2 removed dependencies, got %d", len(out.Removed))
@@ -386,7 +419,7 @@ func TestRemoveCommandJSON(t *testing.T) {
 	}
 }
 
-func TestRemoveCommandJSON_RequiresYes(t *testing.T) {
+func TestUninstallCommandJSON_RequiresYes(t *testing.T) {
 	projectDir := t.TempDir()
 	cfg := config.Ruleset{
 		SpecVersion: "0.1",
@@ -400,16 +433,16 @@ func TestRemoveCommandJSON_RequiresYes(t *testing.T) {
 	}
 	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
 	var env jsonEnvelope
-	err := runCmdJSON(t, projectDir, a.newDepsRemoveCmd(), &env, "1")
+	err := runCmdJSON(t, projectDir, a.newDepsUninstallCmd(), &env, "1")
 	if err == nil {
-		t.Fatalf("expected remove to fail without --yes")
+		t.Fatalf("expected uninstall to fail without --yes")
 	}
 	if !strings.Contains(err.Error(), "rerun with --yes") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestRemoveCommand_AmbiguousSelector(t *testing.T) {
+func TestUninstallCommand_AmbiguousSelector(t *testing.T) {
 	projectDir := t.TempDir()
 	cfg := config.Ruleset{
 		SpecVersion: "0.1",
@@ -425,12 +458,145 @@ func TestRemoveCommand_AmbiguousSelector(t *testing.T) {
 
 	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
 	var env jsonEnvelope
-	err := runCmdJSON(t, projectDir, a.newDepsRemoveCmd(), &env, "https://example.com/rules.git")
+	err := runCmdJSON(t, projectDir, a.newDepsUninstallCmd(), &env, "https://example.com/rules.git")
 	if err == nil {
-		t.Fatalf("expected remove to fail for ambiguous selector")
+		t.Fatalf("expected uninstall to fail for ambiguous selector")
 	}
 	if !strings.Contains(err.Error(), "matched multiple dependencies") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUninstallCommandJSON_CleanupOptional(t *testing.T) {
+	projectDir := t.TempDir()
+	managedOut := filepath.Join(projectDir, "managed.md")
+	if err := os.WriteFile(managedOut, []byte("<!-- rulepack:managed -->\ncontent\n"), 0o644); err != nil {
+		t.Fatalf("write managed output: %v", err)
+	}
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "git", URI: "https://example.com/rules.git", Export: "default"},
+		},
+		Targets: map[string]config.TargetEntry{
+			"codex": {OutFile: managedOut},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsUninstallCmd(), &env, "1", "--yes"); err != nil {
+		t.Fatalf("uninstall failed: %v", err)
+	}
+	var out uninstallOutput
+	if err := json.Unmarshal(env.Result, &out); err != nil {
+		t.Fatalf("unmarshal uninstall output: %v", err)
+	}
+	if out.CleanupPerformed {
+		t.Fatalf("cleanup should be skipped by default in non-interactive mode")
+	}
+	if _, err := os.Stat(managedOut); err != nil {
+		t.Fatalf("expected managed output to remain without --cleanup: %v", err)
+	}
+}
+
+func TestUninstallCommandJSON_CleanupWithFlag(t *testing.T) {
+	projectDir := t.TempDir()
+	managedOut := filepath.Join(projectDir, "managed.md")
+	if err := os.WriteFile(managedOut, []byte("<!-- rulepack:managed -->\ncontent\n"), 0o644); err != nil {
+		t.Fatalf("write managed output: %v", err)
+	}
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "git", URI: "https://example.com/rules.git", Export: "default"},
+		},
+		Targets: map[string]config.TargetEntry{
+			"codex": {OutFile: managedOut},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	a := &app{renderer: cliout.NewJSONRenderer(), jsonMode: true}
+	var env jsonEnvelope
+	if err := runCmdJSON(t, projectDir, a.newDepsUninstallCmd(), &env, "1", "--yes", "--cleanup"); err != nil {
+		t.Fatalf("uninstall --cleanup failed: %v", err)
+	}
+	var out uninstallOutput
+	if err := json.Unmarshal(env.Result, &out); err != nil {
+		t.Fatalf("unmarshal uninstall output: %v", err)
+	}
+	if !out.CleanupPerformed || len(out.CleanupDeleted) != 1 {
+		t.Fatalf("expected cleanup to delete one file, got %#v", out)
+	}
+	if _, err := os.Stat(managedOut); !os.IsNotExist(err) {
+		t.Fatalf("expected managed output removed, stat err=%v", err)
+	}
+}
+
+func TestUninstallCommand_InteractiveCleanupPromptDecline(t *testing.T) {
+	orig := isInteractiveTerminal
+	t.Cleanup(func() { isInteractiveTerminal = orig })
+	isInteractiveTerminal = func() bool { return true }
+
+	projectDir := t.TempDir()
+	managedOut := filepath.Join(projectDir, "managed.md")
+	if err := os.WriteFile(managedOut, []byte("<!-- rulepack:managed -->\ncontent\n"), 0o644); err != nil {
+		t.Fatalf("write managed output: %v", err)
+	}
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "git", URI: "https://example.com/rules.git", Export: "default"},
+		},
+		Targets: map[string]config.TargetEntry{
+			"codex": {OutFile: managedOut},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	a := &app{renderer: cliout.NewHumanRenderer(true)}
+	cmd := a.newDepsUninstallCmd()
+	cmd.SetIn(strings.NewReader("yes\nn\n"))
+	if err := runCmd(t, projectDir, cmd, "1"); err != nil {
+		t.Fatalf("interactive uninstall failed: %v", err)
+	}
+	if _, err := os.Stat(managedOut); err != nil {
+		t.Fatalf("expected managed output to remain after declining cleanup: %v", err)
+	}
+}
+
+func TestUninstallCommand_InteractiveNoCleanupPromptWhenNoCandidates(t *testing.T) {
+	orig := isInteractiveTerminal
+	t.Cleanup(func() { isInteractiveTerminal = orig })
+	isInteractiveTerminal = func() bool { return true }
+
+	projectDir := t.TempDir()
+	cfg := config.Ruleset{
+		SpecVersion: "0.1",
+		Name:        "proj",
+		Dependencies: []config.Dependency{
+			{Source: "git", URI: "https://example.com/rules.git", Export: "default"},
+		},
+		Targets: map[string]config.TargetEntry{
+			"codex": {OutFile: filepath.Join(projectDir, "missing.md")},
+		},
+	}
+	if err := config.SaveRuleset(filepath.Join(projectDir, config.RulesetFileName), cfg); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	a := &app{renderer: cliout.NewHumanRenderer(true)}
+	cmd := a.newDepsUninstallCmd()
+	cmd.SetIn(strings.NewReader("yes\n"))
+	if err := runCmd(t, projectDir, cmd, "1"); err != nil {
+		t.Fatalf("interactive uninstall failed: %v", err)
 	}
 }
 
@@ -448,10 +614,21 @@ func TestRootHasNoTopLevelDependencyLifecycleCommands(t *testing.T) {
 	root.AddCommand(a.newBuildCmd())
 	root.AddCommand(a.newDoctorCmd())
 	root.AddCommand(a.newProfileCmd())
-	for _, name := range []string{"add", "install", "outdated", "remove"} {
+	for _, name := range []string{"add", "install", "outdated", "uninstall"} {
 		if cmd, _, err := root.Find([]string{name}); err == nil && cmd != nil {
 			t.Fatalf("expected no top-level %s command", name)
 		}
+	}
+}
+
+func TestDepsCommand_UninstallOnly(t *testing.T) {
+	a := &app{}
+	deps := a.newDepsCmd()
+	if cmd, _, err := deps.Find([]string{"uninstall"}); err != nil || cmd == nil {
+		t.Fatalf("expected uninstall subcommand, err=%v", err)
+	}
+	if cmd, _, err := deps.Find([]string{"remove"}); err == nil && cmd != nil {
+		t.Fatalf("expected remove subcommand to be unavailable")
 	}
 }
 
@@ -891,6 +1068,24 @@ func runCmdJSON(t *testing.T, dir string, cmdRunner *cobra.Command, out any, arg
 		return err
 	}
 	return json.Unmarshal(bytes, out)
+}
+
+func runCmd(t *testing.T, dir string, cmdRunner *cobra.Command, args ...string) error {
+	t.Helper()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(oldWD) }()
+
+	cmdRunner.SetArgs(args)
+	_, err = captureStdout(func() error {
+		return cmdRunner.Execute()
+	})
+	return err
 }
 
 func captureStdout(fn func() error) ([]byte, error) {

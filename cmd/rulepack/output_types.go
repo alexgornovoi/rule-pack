@@ -27,10 +27,14 @@ type removedDependencyRow struct {
 	Dependency config.Dependency `json:"dependency"`
 }
 
-type removeOutput struct {
-	RulesetFile string                 `json:"rulesetFile"`
-	Removed     []removedDependencyRow `json:"removed"`
-	Remaining   int                    `json:"remaining"`
+type uninstallOutput struct {
+	RulesetFile      string                 `json:"rulesetFile"`
+	Removed          []removedDependencyRow `json:"removed"`
+	Remaining        int                    `json:"remaining"`
+	CleanupRequested bool                   `json:"cleanupRequested,omitempty"`
+	CleanupPerformed bool                   `json:"cleanupPerformed,omitempty"`
+	CleanupDeleted   []string               `json:"cleanupDeleted,omitempty"`
+	CleanupSkipped   []string               `json:"cleanupSkipped,omitempty"`
 }
 
 type installResolvedRow struct {

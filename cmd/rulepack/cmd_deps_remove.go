@@ -8,15 +8,16 @@ import (
 	"github.com/spf13/cobra"
 	"rulepack/internal/cliout"
 	"rulepack/internal/config"
+	"rulepack/internal/render"
 )
 
-func (a *app) newDepsRemoveCmd() *cobra.Command {
+func (a *app) newDepsUninstallCmd() *cobra.Command {
 	var yes bool
+	var cleanup bool
 	cmd := &cobra.Command{
-		Use:     "remove <dep-selector> [dep-selector...]",
-		Aliases: []string{"uninstall"},
-		Short:   "Remove one or more dependencies from rulepack.json",
-		Args:    cobra.MinimumNArgs(1),
+		Use:   "uninstall <dep-selector> [dep-selector...]",
+		Short: "Uninstall one or more dependencies from rulepack.json",
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.LoadRuleset(config.RulesetFileName)
 			if err != nil {
@@ -57,10 +58,10 @@ func (a *app) newDepsRemoveCmd() *cobra.Command {
 				a.jsonMode,
 				yes,
 				len(removed) > 0,
-				fmt.Sprintf("remove would delete %d dependency entries from %s", len(removed), config.RulesetFileName),
-				fmt.Sprintf("Remove %d dependency entries from %s?", len(removed), config.RulesetFileName),
+				fmt.Sprintf("uninstall would delete %d dependency entries from %s", len(removed), config.RulesetFileName),
+				fmt.Sprintf("Uninstall %d dependency entries from %s?", len(removed), config.RulesetFileName),
 				preview,
-				"remove",
+				"uninstall",
 			); err != nil {
 				return err
 			}
@@ -70,13 +71,44 @@ func (a *app) newDepsRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			out := removeOutput{
-				RulesetFile: config.RulesetFileName,
-				Removed:     removed,
-				Remaining:   len(cfg.Dependencies),
+			cleanupRequested := cleanup
+			if !cleanupRequested && !a.jsonMode && isInteractiveTerminal() {
+				previewDelete, _, err := render.PreviewManagedCleanup(cfg.Targets)
+				if err != nil {
+					return err
+				}
+				if len(previewDelete) > 0 {
+					cleanupRequested, err = promptOptionalAction(cmd, fmt.Sprintf("Cleanup %d managed generated file(s)?", len(previewDelete)), previewDelete)
+					if err != nil {
+						return err
+					}
+				}
+			}
+
+			cleanupPerformed := false
+			cleanupDeleted := make([]string, 0)
+			cleanupSkipped := make([]string, 0)
+			if cleanupRequested {
+				cleanupPerformed = true
+				deleted, skipped, err := render.CleanupManagedOutputs(cfg.Targets)
+				if err != nil {
+					return err
+				}
+				cleanupDeleted = deleted
+				cleanupSkipped = skipped
+			}
+
+			out := uninstallOutput{
+				RulesetFile:      config.RulesetFileName,
+				Removed:          removed,
+				Remaining:        len(cfg.Dependencies),
+				CleanupRequested: cleanupRequested,
+				CleanupPerformed: cleanupPerformed,
+				CleanupDeleted:   cleanupDeleted,
+				CleanupSkipped:   cleanupSkipped,
 			}
 			if a.jsonMode {
-				return a.renderer.RenderJSON("remove", out)
+				return a.renderer.RenderJSON("uninstall", out)
 			}
 			rows := make([][]string, 0, len(removed))
 			for _, r := range removed {
@@ -84,19 +116,26 @@ func (a *app) newDepsRemoveCmd() *cobra.Command {
 			}
 			events := []cliout.Event{}
 			if len(removed) > 1 {
-				events = append(events, cliout.Event{Level: "info", Message: "Removed " + strconv.Itoa(len(removed)) + " dependencies"})
+				events = append(events, cliout.Event{Level: "info", Message: "Uninstalled " + strconv.Itoa(len(removed)) + " dependencies"})
+			}
+			if cleanupPerformed {
+				events = append(events, cliout.Event{Level: "info", Message: "Cleanup deleted " + strconv.Itoa(len(cleanupDeleted)) + " managed file(s)"})
+				if len(cleanupSkipped) > 0 {
+					events = append(events, cliout.Event{Level: "warn", Message: "Cleanup skipped " + strconv.Itoa(len(cleanupSkipped)) + " unmanaged file(s)"})
+				}
 			}
 			a.renderer.RenderHuman(cliout.HumanPayload{
-				Command: "remove",
-				Title:   "Dependencies Removed",
+				Command: "uninstall",
+				Title:   "Dependencies Uninstalled",
 				Events:  events,
-				Tables:  []cliout.Table{{Title: "Removed Dependencies", Columns: []string{"#", "Source", "Ref/Path/Profile", "Export"}, Rows: rows}},
-				Summary: map[string]string{"remaining": strconv.Itoa(len(cfg.Dependencies))},
+				Tables:  []cliout.Table{{Title: "Uninstalled Dependencies", Columns: []string{"#", "Source", "Ref/Path/Profile", "Export"}, Rows: rows}},
+				Summary: map[string]string{"remaining": strconv.Itoa(len(cfg.Dependencies)), "cleanupDeleted": strconv.Itoa(len(cleanupDeleted)), "cleanupSkipped": strconv.Itoa(len(cleanupSkipped))},
 				Done:    "Updated " + config.RulesetFileName,
 			})
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&yes, "yes", false, "confirm dependency removal without prompting")
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm dependency uninstall without prompting")
+	cmd.Flags().BoolVar(&cleanup, "cleanup", false, "cleanup managed generated outputs after uninstall")
 	return cmd
 }

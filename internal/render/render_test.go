@@ -152,6 +152,90 @@ func TestCursorUnmanagedOverwrites_IgnoresManagedCollision(t *testing.T) {
 	}
 }
 
+func TestWriteMergedAddsManagedHeader(t *testing.T) {
+	outFile := filepath.Join(t.TempDir(), "rules.md")
+	modules := []pack.Module{{ID: "a", Priority: 100, Content: "A\n"}}
+	if err := WriteMerged(outFile, modules); err != nil {
+		t.Fatalf("WriteMerged: %v", err)
+	}
+	content := mustReadFile(t, outFile)
+	if !strings.HasPrefix(content, "<!-- rulepack:managed -->\n") {
+		t.Fatalf("expected managed header, got %q", content)
+	}
+}
+
+func TestCleanupManagedOutputs_MergedManagedAndUnmanaged(t *testing.T) {
+	root := t.TempDir()
+	managed := filepath.Join(root, "managed.md")
+	unmanaged := filepath.Join(root, "manual.md")
+	if err := os.WriteFile(managed, []byte("<!-- rulepack:managed -->\nA\n"), 0o644); err != nil {
+		t.Fatalf("write managed: %v", err)
+	}
+	if err := os.WriteFile(unmanaged, []byte("manual\n"), 0o644); err != nil {
+		t.Fatalf("write unmanaged: %v", err)
+	}
+	targets := map[string]config.TargetEntry{
+		"codex": {OutFile: managed},
+	}
+	deletable, skipped, err := PreviewManagedCleanup(targets)
+	if err != nil {
+		t.Fatalf("PreviewManagedCleanup: %v", err)
+	}
+	if len(deletable) != 1 || deletable[0] != managed {
+		t.Fatalf("unexpected deletable: %#v", deletable)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("unexpected skipped: %#v", skipped)
+	}
+	deleted, skipped, err := CleanupManagedOutputs(targets)
+	if err != nil {
+		t.Fatalf("CleanupManagedOutputs: %v", err)
+	}
+	if len(deleted) != 1 || deleted[0] != managed || len(skipped) != 0 {
+		t.Fatalf("unexpected cleanup result deleted=%#v skipped=%#v", deleted, skipped)
+	}
+	if _, err := os.Stat(managed); !os.IsNotExist(err) {
+		t.Fatalf("expected managed file deleted, stat err=%v", err)
+	}
+	if _, err := os.Stat(unmanaged); err != nil {
+		t.Fatalf("expected unmanaged file untouched, stat err=%v", err)
+	}
+}
+
+func TestCleanupManagedOutputs_CursorManagedAndUnmanaged(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "rules")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	managed := filepath.Join(outDir, "100-python_base.mdc")
+	unmanaged := filepath.Join(outDir, "110-manual.mdc")
+	if err := os.WriteFile(managed, []byte("<!-- pack=x version=1 commit=a module=b priority=100 -->\nA\n"), 0o644); err != nil {
+		t.Fatalf("write managed: %v", err)
+	}
+	if err := os.WriteFile(unmanaged, []byte("manual\n"), 0o644); err != nil {
+		t.Fatalf("write unmanaged: %v", err)
+	}
+	targets := map[string]config.TargetEntry{
+		"cursor": {OutDir: outDir, PerModule: true, Ext: ".mdc"},
+	}
+	deleted, skipped, err := CleanupManagedOutputs(targets)
+	if err != nil {
+		t.Fatalf("CleanupManagedOutputs: %v", err)
+	}
+	if len(deleted) != 1 || deleted[0] != managed {
+		t.Fatalf("unexpected deleted: %#v", deleted)
+	}
+	if len(skipped) != 1 || skipped[0] != unmanaged {
+		t.Fatalf("unexpected skipped: %#v", skipped)
+	}
+	if _, err := os.Stat(managed); !os.IsNotExist(err) {
+		t.Fatalf("expected managed file deleted, stat err=%v", err)
+	}
+	if _, err := os.Stat(unmanaged); err != nil {
+		t.Fatalf("expected unmanaged file untouched, stat err=%v", err)
+	}
+}
+
 func mustReadFile(t *testing.T, path string) string {
 	t.Helper()
 	bytes, err := os.ReadFile(path)

@@ -71,13 +71,13 @@ func (a *app) newDepsAddCmd() *cobra.Command {
 				}
 				dep.Source = "local"
 				dep.Path = normalizedPath
-				matchKey = dep.Path
+				matchKey = dep.Path + "#" + normalizeExportName(dep.Export)
 			} else {
 				dep.Source = "git"
 				dep.URI = args[0]
 				dep.Ref = ref
 				dep.Version = version
-				matchKey = dep.URI
+				matchKey = dep.URI + "#" + normalizeExportName(dep.Export)
 			}
 
 			action := "added"
@@ -149,10 +149,10 @@ func (a *app) newDepsAddCmd() *cobra.Command {
 func dependencyMatchKey(dep config.Dependency) string {
 	switch dependencySource(dep) {
 	case "git":
-		return dep.URI
+		return dep.URI + "#" + normalizeExportName(dep.Export)
 	case "local":
-		return filepath.ToSlash(filepath.Clean(dep.Path))
+		return filepath.ToSlash(filepath.Clean(dep.Path)) + "#" + normalizeExportName(dep.Export)
 	default:
-		return dependencyReference(dep)
+		return dependencyReference(dep) + "#" + normalizeExportName(dep.Export)
 	}
 }

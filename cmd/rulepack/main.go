@@ -110,6 +110,14 @@ func profileDependencyForRead(dep config.Dependency) config.Dependency {
 	return out
 }
 
+func normalizeExportName(export string) string {
+	export = strings.TrimSpace(export)
+	if export == "" || export == "default" {
+		return "default"
+	}
+	return export
+}
+
 func buildLock(cfg config.Ruleset, cfgDir string, gc *git.Client) (config.Lockfile, []installResolvedRow, map[string]int, error) {
 	lock := config.Lockfile{LockVersion: "0.1"}
 	rows := make([]installResolvedRow, 0, len(cfg.Dependencies))

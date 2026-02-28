@@ -184,9 +184,9 @@ Global flags:
 
 | Command | Purpose | Common flags | Notes |
 | --- | --- | --- | --- |
-| `rulepack deps add [git-url]` | Add or replace dependency | `--export`, `--version`, `--ref`, `--local`, `--yes` | `--version` and `--ref` are mutually exclusive; git-only |
+| `rulepack deps add [git-url]` | Add dependency (or replace same source+export) | `--export`, `--version`, `--ref`, `--local`, `--yes` | `--version` and `--ref` are mutually exclusive; git-only |
 | `rulepack deps list` | List dependencies and lock status | none | Quick check before install/build |
-| `rulepack deps remove <selector>...` | Remove one or more dependencies | `--yes` | Alias: `rulepack deps uninstall` |
+| `rulepack deps uninstall <selector>...` | Uninstall one or more dependencies | `--yes`, `--cleanup` | `--cleanup` removes managed generated outputs |
 | `rulepack deps install` | Resolve dependencies and write lockfile | none | Writes `rulepack.lock.json` |
 | `rulepack deps outdated` | Check for newer resolvable git revisions | none | Use before refresh/reinstall |
 
@@ -218,7 +218,9 @@ Global flags:
 - `--version`/`--ref` cannot be combined with `--local`.
 - If neither `--version` nor `--ref` is set, git dependencies resolve from `HEAD` during `deps install`.
 - If `rulepack.json` is missing, `deps add` auto-initializes a default config.
-- Selector support for `deps remove`: 1-based index, exact `uri`, exact local `path`, or `profile id`.
+- Selector support for `deps uninstall`: 1-based index, exact `uri`, exact local `path`, or `profile id`.
+- If multiple dependencies share the same `uri`/`path` (for different exports), selector by index is recommended.
+- `deps uninstall` prompts to clean managed generated outputs only when deletable files are found. In non-interactive mode, cleanup runs only when `--cleanup` is provided.
 
 </details>
 

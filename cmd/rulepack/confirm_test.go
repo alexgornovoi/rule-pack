@@ -72,3 +72,27 @@ func TestConfirmRiskAction_InteractiveAccept(t *testing.T) {
 		t.Fatalf("expected success, got %v", err)
 	}
 }
+
+func TestPromptOptionalAction_Accept(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetIn(strings.NewReader("y\n"))
+	ok, err := promptOptionalAction(cmd, "cleanup?", nil)
+	if err != nil {
+		t.Fatalf("promptOptionalAction: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected accept")
+	}
+}
+
+func TestPromptOptionalAction_Decline(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetIn(strings.NewReader("n\n"))
+	ok, err := promptOptionalAction(cmd, "cleanup?", nil)
+	if err != nil {
+		t.Fatalf("promptOptionalAction: %v", err)
+	}
+	if ok {
+		t.Fatalf("expected decline")
+	}
+}
