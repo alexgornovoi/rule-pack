@@ -1,50 +1,66 @@
 # rulepack
 
-`rulepack` is a CLI for reusing AI agent rules across projects.
-It lets you pull rules from git or local sources, lock them for reproducibility, build tool-specific outputs, and save reusable local profile snapshots.
+`rulepack` is a CLI for sharing, pinning, and building AI agent rules across projects with reproducible outputs.
 
 [![Release](https://img.shields.io/github/v/release/alexgornovoi/rule-pack)](https://github.com/alexgornovoi/rule-pack/releases)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/alexgornovoi/rule-pack)](https://github.com/alexgornovoi/rule-pack/blob/main/go.mod)
 
-[Releases](https://github.com/alexgornovoi/rule-pack/releases) · [Issues](https://github.com/alexgornovoi/rule-pack/issues)
+[Releases](https://github.com/alexgornovoi/rule-pack/releases) · [Issues](https://github.com/alexgornovoi/rule-pack/issues) · [Examples](./examples/README.md) · [Spec](./docs/rulepack-spec.md)
 
-## Table of Contents
+## On This Page
 
-- [Why Rulepack](#why-rulepack)
+- [Quickstart](#quickstart-60-seconds)
 - [Install](#install)
-- [Basic Usage](#basic-usage)
-- [Commands](#commands)
-- [Advanced Usage](#advanced-usage)
-- [Build From Source (Go)](#build-from-source-go)
-- [Output modes](#output-modes)
-- [Dependency resolution details](#dependency-resolution-details)
-- [Output behavior](#output-behavior)
-- [File reference](#file-reference)
-- [Contributors](#contributors)
+- [Core Workflow Recipes](#core-workflow-recipes)
+- [Commands Reference](#commands-reference)
+- [Verified CLI Output Snapshots](#verified-cli-output-snapshots)
+- [Advanced Workflows](#advanced-workflows)
+- [Troubleshooting FAQ](#troubleshooting-faq)
+- [Prompt Repository Maintainer Guide](#prompt-repository-maintainer-guide)
+
+## Quickstart (60 seconds)
+
+Start a new project, add one rules source, resolve dependencies, then build outputs.
+
+```bash
+rulepack init --name my-project
+rulepack deps add https://github.com/your-org/your-rules.git
+rulepack deps install
+rulepack build
+```
+
+> [!TIP]
+> Replace `https://github.com/your-org/your-rules.git` with your own rules repository URL.
+
+![Terminal quickstart demo](docs/assets/quickstart-demo.svg)
+
+_Quickstart flow preview: init -> deps add -> deps install -> build._
 
 ## Why Rulepack
 
 - Reuse one shared rules library across many projects.
 - Keep outputs deterministic with lockfiles.
 - Build rules for Cursor, Copilot, and Codex from the same source.
-- Save the current stack as a local profile and reuse it later, even if original sources disappear.
+- Save the current dependency stack as a reusable local profile snapshot.
 
 Typical use cases:
 
-- Team-level rule pack in git, consumed by many repos.
+- Team-level rule pack in git consumed across repos.
 - Personal local rule folders while iterating on prompts/rules.
-- Snapshotting a "known-good" rules setup as a profile before starting a new project.
+- Snapshotting a known-good setup before starting a new project.
 
 ## Install
 
 ### Homebrew (macOS/Linux)
+
+Install via tap:
 
 ```bash
 brew tap alexgornovoi/homebrew-tap
 brew install --cask rulepack
 ```
 
-Or without tapping first:
+Install directly without tapping first:
 
 ```bash
 brew install --cask alexgornovoi/homebrew-tap/rulepack
@@ -58,18 +74,11 @@ sudo apt update
 sudo apt install rulepack
 ```
 
-## Basic Usage
+## Core Workflow Recipes
 
-Start a new project, add rules, lock dependencies, and build outputs:
+### Python-only rules
 
-```bash
-rulepack init --name my-project
-rulepack deps add https://github.com/your-org/your-rules.git
-rulepack deps install
-rulepack build
-```
-
-### Example A: Python-only rules
+Use one exported ruleset for a Python project.
 
 ```bash
 rulepack init --name my-python-project
@@ -78,7 +87,9 @@ rulepack deps install
 rulepack build
 ```
 
-### Example B: Python + ML rules from one repo
+### Python + ML rules from one repo
+
+Install two exports from the same dependency source.
 
 ```bash
 rulepack init --name my-ml-project
@@ -88,242 +99,226 @@ rulepack deps install
 rulepack build
 ```
 
-`https://github.com/your-org/your-rules.git` is an example source. Replace it with your own rules repository URL.
+### Pin a known reference
 
-If `--export` is omitted, Rulepack uses `exports.default` if present. If no `exports.default` exists, Rulepack implicitly selects all modules (`include: ["**"]`).
-
-Optional variants:
+Pin to a commit, tag, or branch.
 
 ```bash
-# Pin a ref directly (commit/tag/branch)
 rulepack deps add https://github.com/your-org/your-rules.git --ref v1.2.3
-
-# Use a local rules repo
-rulepack deps add --local ../my-rules --export python
 rulepack deps install
 rulepack build
+```
 
-# Optional: build only one target
+### Use local rules while authoring
+
+Prefer local path mode for rapid local iteration.
+
+```bash
+rulepack deps add --local ../my-rules --export python
+rulepack deps install
 rulepack build --target codex
 ```
 
-## Commands
+> [!NOTE]
+> If `--export` is omitted, Rulepack uses `exports.default` when present. If no default export exists, all modules are selected (`include: ["**"]`).
+
+## Commands Reference
 
 Global flags:
 
-- `--json`: emit machine-readable JSON output. Default: `false` (human output).
-- `--no-color`: disable ANSI colors in human output. Default: `false` (color enabled).
+| Flag | Purpose | Default |
+| --- | --- | --- |
+| `--json` | Emit machine-readable output | `false` |
+| `--no-color` | Disable ANSI colors in human output | `false` |
 
-### `init`
+### Project setup commands
 
-Creates a starter `rulepack.json` with default targets.
+| Command | Purpose | Common flags | Notes |
+| --- | --- | --- | --- |
+| `rulepack init` | Create starter `rulepack.json` | `--name`, `--template rulepack` | `--name` defaults to current directory name |
+| `rulepack doctor` | Run diagnostics on config/lockfile/git/profile store | none | Use after setup or when troubleshooting |
+
+### Dependency commands
+
+| Command | Purpose | Common flags | Notes |
+| --- | --- | --- | --- |
+| `rulepack deps add [git-url]` | Add or replace dependency | `--export`, `--version`, `--ref`, `--local`, `--yes` | `--version` and `--ref` are mutually exclusive; git-only |
+| `rulepack deps list` | List dependencies and lock status | none | Quick check before install/build |
+| `rulepack deps remove <selector>...` | Remove one or more dependencies | `--yes` | Alias: `rulepack deps uninstall` |
+| `rulepack deps install` | Resolve dependencies and write lockfile | none | Writes `rulepack.lock.json` |
+| `rulepack deps outdated` | Check for newer resolvable git revisions | none | Use before refresh/reinstall |
+
+### Build commands
+
+| Command | Purpose | Common flags | Notes |
+| --- | --- | --- | --- |
+| `rulepack build` | Build target outputs from lockfile | `--target cursor|copilot|codex|all`, `--yes` | `--target` defaults to `all` |
+
+> [!WARNING]
+> In non-interactive or `--json` mode, operations that require confirmation (for example `deps add` replacement, some `build` collisions, profile updates) require `--yes`.
+
+### Profile commands
+
+| Command | Purpose | Common flags | Notes |
+| --- | --- | --- | --- |
+| `rulepack profile save` | Save dependencies as a local profile snapshot | `--alias`, `--dep`, `--switch` | `--alias` required in non-interactive mode |
+| `rulepack profile list` | List saved profiles | none | Reads global profile store |
+| `rulepack profile show <id-or-alias>` | Show profile metadata/details | none | Use to inspect one profile |
+| `rulepack profile use <id-or-alias>` | Add/update dependency using a saved profile | none | Can be combined with non-profile dependencies |
+| `rulepack profile remove <id-or-alias>` | Remove one profile | `--yes`, `--all` | Alias: `rulepack profile delete` |
+| `rulepack profile diff <id-or-alias>` | Compare snapshot modules with source state | `--rule` repeatable | Use before refresh |
+| `rulepack profile refresh <id-or-alias>` | Update snapshot from source state | `--new-id`, `--rule`, `--dry-run`, `--yes` | In-place updates can require `--yes` |
+
+<details>
+<summary>Edge-case behavior and resolution rules</summary>
+
+- `--version` and `--ref` cannot be used together.
+- `--version`/`--ref` cannot be combined with `--local`.
+- If neither `--version` nor `--ref` is set, git dependencies resolve from `HEAD` during `deps install`.
+- If `rulepack.json` is missing, `deps add` auto-initializes a default config.
+- Selector support for `deps remove`: 1-based index, exact `uri`, exact local `path`, or `profile id`.
+
+</details>
+
+## Verified CLI Output Snapshots
+
+These blocks were captured from real `rulepack` runs on February 27, 2026 using `--no-color` in this workspace.
+
+### `rulepack --help`
+
+```text
+rulepack composes rule packs into target outputs. Use --json for machine-readable output.
+
+Usage:
+  rulepack [command]
+
+Available Commands:
+  build       Compile resolved rule packs into target outputs
+  completion  Generate the autocompletion script for the specified shell
+  deps        Manage dependency lifecycle
+  doctor      Validate environment, config, lockfile, and profile store
+  help        Help about any command
+  init        Create a starter rulepack.json
+  profile     Manage reusable globally saved profiles
 
 Flags:
+  -h, --help       help for rulepack
+      --json       emit JSON output
+      --no-color   disable color in human output
 
-- `--name <name>`: set project/rulepack name.
-  Default: current directory basename.
-- `--template <template>`: scaffold template files. Supported value: `rulepack`.
-  Default: empty (no template scaffold files).
-
-### `deps add [git-url]`
-
-Adds or replaces a dependency in `rulepack.json`.
-Supported forms:
-
-- `rulepack deps add <git-url>`
-- `rulepack deps add --local <path>`
-
-Flags:
-
-- `--export <name>`: export name to select from dependency pack.
-  Default: empty (Rulepack uses export fallback resolution).
-- `--version <constraint>`: semver tag constraint.
-  Default: empty.
-- `--ref <ref>`: commit/tag/branch reference.
-  Default: empty.
-- `--local <path>`: local rulepack directory path.
-  Default: empty (git mode).
-- `--yes`: confirm risky dependency replacement without prompting.
-  Default: `false`.
-
-Notes:
-
-- `--version` and `--ref` are mutually exclusive.
-- `--version` and `--ref` are git-only flags and cannot be used with `--local`.
-- If `--export` is not set: use `exports.default` when present; otherwise all modules (`include: ["**"]`).
-- If neither `--version` nor `--ref` is set, dependency resolution uses `HEAD` during `rulepack deps install`.
-- If `rulepack.json` is missing, `deps add` auto-initializes a default config first.
-- Replacement (`add` against existing dependency URI/path) requires `--yes` in non-interactive or `--json` mode.
-
-### `deps list`
-
-Lists configured dependencies and lock status.
-
-Flags:
-
-- `--yes`: confirm dependency removal without prompting.
-  Default: `false`.
-
-### `deps remove <dep-selector> [dep-selector...]`
-
-Removes one or more dependencies from `rulepack.json`.
-Selectors accept:
-
-- 1-based index (`1`)
-- exact dependency reference (`uri`, `path`, or `profile id`)
-
-Flags:
-
-- none
-
-Notes:
-
-- Alias: `rulepack deps uninstall ...`
-- Non-interactive or `--json` mode requires `--yes`.
-- After removal, run:
-
-```bash
-rulepack deps install
-rulepack build
+Use "rulepack [command] --help" for more information about a command.
 ```
 
-### `deps install`
+### `rulepack init --name sample-project --no-color`
 
-Resolves dependencies and writes `rulepack.lock.json`.
+```text
+ Initialize Rulepack 
+- Created rulepack.json
 
-Flags:
+Scaffolded Files
+| Path |
+|------|
 
-- none
+OK Initialization complete
+```
 
-### `deps outdated`
+### `rulepack deps add --local /Users/alex/Documents/rule-pack/prompt-library --no-color`
 
-Checks whether git dependencies have newer resolvable revisions.
+```text
+ Dependency Updated 
+- Action: added
 
-Flags:
+Dependency Diff
+| Field   | Old | New                                                             |
+|---------|-----|-----------------------------------------------------------------|
+| source  |     | local                                                           |
+| uri     |     |                                                                 |
+| path    |     | ../../../../../../Users/alex/Documents/rule-pack/prompt-library |
+| export  |     |                                                                 |
+| version |     |                                                                 |
+| ref     |     |                                                                 |
 
-- none
+OK Updated rulepack.json
+```
 
-### `build`
+### `rulepack deps install --no-color`
 
-Builds target outputs from locked dependencies.
+```text
+ Install Dependencies 
 
-Flags:
+Resolved Dependencies
+| # | Source | Ref/Path/Profile                                                | Export | Resolved | Hash/Commit  |
+|---|--------|-----------------------------------------------------------------|--------|----------|--------------|
+| 1 | local  | ../../../../../../Users/alex/Documents/rule-pack/prompt-library |        | local    | 049e4316e0f9 |
 
-- `--target <target>`: `cursor|copilot|codex|all`.
-  Default: `all`.
-- `--yes`: confirm unmanaged cursor overwrite collisions without prompting.
-  Default: `false`.
+Summary
+  git: 0
+  local: 1
+  lock file: rulepack.lock.json
+  profile: 0
 
-Notes:
+OK Install complete
+```
 
-- If unmanaged cursor output collisions are detected, non-interactive or `--json` mode requires `--yes`.
+### `rulepack build --no-color`
 
-### `doctor`
+```text
+ Build Outputs 
 
-Runs diagnostics for config, lockfile, git client, and profile store.
+Build Targets
+| Target  | Output                          | Status |
+|---------|---------------------------------|--------|
+| cursor  | .cursor/rules                   | ok     |
+| copilot | .github/copilot-instructions.md | ok     |
+| codex   | .codex/rules.md                 | ok     |
 
-Flags:
+Summary
+  duplicates: none
+  moduleCount: 7
+  overrides: 0
 
-- none
+OK Build complete
+```
 
-### `profile save`
+### `rulepack doctor --no-color`
 
-Saves dependencies as a reusable local profile snapshot.
+```text
+ Diagnostics 
 
-Flags:
+Checks
+| Check          | Status | Details                        |
+|----------------|--------|--------------------------------|
+| ruleset file   | ok     |                                |
+| ruleset parse  | ok     |                                |
+| lockfile       | ok     |                                |
+| lock alignment | ok     |                                |
+| profile store  | ok     | /Users/alex/.rulepack/profiles |
+| git client     | ok     |                                |
 
-- `--alias <name>`: required in non-interactive mode; interactive prompts if omitted.
-  Default: empty.
-- `--dep <selector>`: save only one dependency instead of all.
-  Default: empty (save all dependencies).
-- `--switch`: replace project dependencies with the saved profile dependency.
-  Default: `false` (leave project dependencies unchanged).
+OK Doctor run complete
+```
 
-### `profile list`
+## Advanced Workflows
 
-Lists saved profiles from global store.
+<details>
+<summary>Reuse one saved profile across multiple projects</summary>
 
-Flags:
-
-- none
-
-### `profile show <profile-id-or-alias>`
-
-Shows metadata/details for one saved profile.
-
-Flags:
-
-- none
-
-### `profile use <profile-id-or-alias>`
-
-Adds/updates project dependency to use a saved profile.
-This does not block adding other dependencies later; profile and non-profile dependencies can be composed.
-
-Flags:
-
-- none
-
-### `profile remove <profile-id-or-alias>`
-
-Deletes one saved profile.
-
-Flags:
-
-- `--yes`: skip interactive confirmation.
-  Default: `false`.
-- `--all`: remove all saved profiles (takes no positional arg).
-  Default: `false`.
-
-Notes:
-
-- Alias: `rulepack profile delete ...`
-- Non-interactive mode requires `--yes`.
-
-### `profile diff <profile-id-or-alias>`
-
-Compares profile snapshot modules with current source state.
-
-Flags:
-
-- `--rule <pattern>` (repeatable): limit comparison to specific module IDs/patterns.
-  Default: none (compare all modules).
-
-### `profile refresh <profile-id-or-alias>`
-
-Refreshes profile snapshot from current source state.
-
-Flags:
-
-- `--new-id`: write refreshed snapshot to a new profile ID.
-  Default: `false` (refresh in place).
-- `--rule <pattern>` (repeatable): refresh only selected module IDs/patterns.
-  Default: none (refresh all modules).
-- `--dry-run`: preview without writing profile files.
-  Default: `false` (writes snapshot updates).
-- `--yes`: confirm risky in-place refresh updates without prompting.
-  Default: `false`.
-
-Notes:
-
-- In-place refreshes with module diffs require `--yes` in non-interactive or `--json` mode.
-
-## Advanced Usage
-
-### 1) Save a profile once and reuse it everywhere
+When to use this: you want one known-good baseline reused in many repositories.
 
 ```bash
-# in project A
 rulepack profile save --alias python-a
-
-# in project B
 rulepack init --name project-b
 rulepack profile use python-a
 rulepack deps install
 rulepack build
 ```
 
-### 2) Use local rules while authoring
+</details>
+
+<details>
+<summary>Use local rules while authoring with template scaffold</summary>
+
+When to use this: you are actively editing rules and want local changes reflected quickly.
 
 ```bash
 rulepack init --name my-project --template rulepack
@@ -331,35 +326,82 @@ rulepack deps install
 rulepack build
 ```
 
-### 3) Refresh a saved profile from source changes
+</details>
+
+<details>
+<summary>Refresh a profile from source changes</summary>
+
+When to use this: you need to pull upstream rule updates into an existing profile snapshot.
 
 ```bash
-# default: update existing profile in place
 rulepack profile refresh python-a
-
-# create a new profile id instead of updating in place
 rulepack profile refresh python-a --new-id
-
-# refresh only specific rules/modules
 rulepack profile refresh python-a --rule python.* --rule ml.safety
 ```
 
-### 4) Check for upstream updates before reinstalling
+</details>
+
+<details>
+<summary>Check for upstream updates before reinstalling</summary>
+
+When to use this: you want to preview dependency freshness before changing your lockfile.
 
 ```bash
 rulepack deps outdated
 ```
 
-### 5) Preview what changed in a saved profile source
+</details>
+
+<details>
+<summary>Preview profile source drift before refresh</summary>
+
+When to use this: you need a scoped diff before deciding whether to refresh.
 
 ```bash
 rulepack profile diff python-a
 rulepack profile diff python-a --rule python.* --rule ml.*
 ```
 
+</details>
+
+## Compatibility
+
+| Area | Support |
+| --- | --- |
+| Install channels | Homebrew cask, Ubuntu PPA, source build |
+| Output targets | `cursor`, `copilot`, `codex`, `all` |
+| Source types | `git`, `local`, `profile` |
+| Lockfile | `rulepack.lock.json` for deterministic resolution |
+| Human/machine output | human (default), `--json` |
+
+## Troubleshooting FAQ
+
+### `rulepack` command not found after install
+
+- Confirm your package manager install completed successfully.
+- Run `rulepack --help` in a new terminal session.
+- If still missing, reinstall from your chosen channel and verify PATH setup.
+
+### `deps install` fails on git dependency resolution
+
+- Run `rulepack doctor` to validate git client and environment.
+- Verify repository URL, access permissions, and any pinned `--ref`/`--version` constraints.
+- Retry with a reachable ref or remove incompatible constraints.
+
+### Lockfile and build outputs appear out of sync
+
+- Re-run `rulepack deps install` before `rulepack build`.
+- Confirm dependency list with `rulepack deps list`.
+- If switching profile/local sources, reinstall to refresh lock state.
+
+### Non-interactive runs fail with confirmation prompts
+
+- Add `--yes` for operations that can require confirmation in non-interactive or `--json` mode.
+- Use this carefully in CI where no prompt interaction is available.
+
 ## Build From Source (Go)
 
-Clone and build this repo:
+Clone and build:
 
 ```bash
 git clone https://github.com/alexgornovoi/rule-pack.git
@@ -374,48 +416,149 @@ Run without building (development only):
 go run ./cmd/rulepack --help
 ```
 
-## Output modes
-
-- Default: human-readable output with sections and tables.
-- `--json`: machine-readable output for automation/scripts.
-- `--no-color`: disable ANSI colors in human mode.
-
-Examples:
-
-```bash
-rulepack profile list
-rulepack deps install --json
-rulepack build --no-color
-```
-
-## Dependency resolution details
-
-- Source types currently supported: `git`, `local`, `profile`.
-- If `ref` is set, it resolves `ref^{commit}`.
-- If `version` is set, tags are parsed as semver (leading `v` allowed), then highest matching version is selected.
-- If neither is set, resolves `HEAD`.
-- For `local`, the CLI loads the local pack directly from disk and pins `path` + `contentHash` in the lockfile.
-- For `profile`, the CLI loads from `~/.rulepack/profiles/<profile-id>` and pins profile `contentHash`.
-
-Repositories are cached under your user cache directory in a `rulepack` folder.
-
-## Output behavior
+## Output Behavior
 
 - Module content is normalized to LF newlines.
 - Merge order is deterministic: priority ascending, then module ID.
 - Duplicate module IDs after composition are rejected.
 - Cursor per-module output includes provenance headers plus one file per module.
-- Copilot/Codex outputs are merged files without provenance headers.
+- Copilot and Codex outputs are merged files without provenance headers.
 
-## File reference
+## Dependency Resolution Details
 
-For full JSON schema and rule pack format details, see:
+- Supported source types: `git`, `local`, `profile`.
+- If `--ref` is set, Rulepack resolves `ref^{commit}`.
+- If `--version` is set, tags are parsed as semver (leading `v` allowed) and the highest matching version is selected.
+- If neither `--version` nor `--ref` is set, Rulepack resolves `HEAD`.
+- For `local` sources, lockfile entries pin local `path` and `contentHash`.
+- For `profile` sources, lockfile entries pin profile `contentHash`.
+- Git repositories are cached under your user cache directory in a `rulepack` folder.
 
-- `docs/rulepack-spec.md`
+## Prompt Repository Maintainer Guide
 
-For a repository-local dogfood setup, see:
+Use this guide to create a prompt/rules repository that can be consumed by Rulepack via `git` or `--local`.
 
-- `examples/README.md`
+### 1) Create the repository structure
+
+Minimum layout:
+
+```text
+my-prompt-repo/
+  rulepack.json
+  modules/
+    foundation/
+      overview.md
+```
+
+Rules:
+
+- `rulepack.json` must be at repository root.
+- Every module `path` must point to a file that exists in the repo.
+- Keep module files as Markdown text (`.md` works well with all targets).
+
+### 2) Define a valid root `rulepack.json`
+
+Required top-level fields are `specVersion`, `name`, and `version` (non-empty strings).
+
+Starter template:
+
+```json
+{
+  "specVersion": "0.1",
+  "name": "my-prompt-repo",
+  "version": "0.1.0",
+  "modules": [
+    {
+      "id": "foundation.overview",
+      "path": "modules/foundation/overview.md",
+      "priority": 100
+    }
+  ],
+  "exports": {
+    "default": {
+      "include": ["**"]
+    }
+  }
+}
+```
+
+### 3) Follow module authoring rules
+
+- `modules[].id` should be unique and stable (recommended dotted namespace, for example `languages.python.patterns`).
+- `modules[].priority` controls merge order (`lower` first, then `id` as tiebreaker).
+- Duplicate module IDs across composed dependencies are rejected at build time.
+
+Optional `apply` metadata can control per-target behavior:
+
+- `always` (default when unspecified)
+- `never`
+- `agent` (with `description`)
+- `glob` (requires non-empty `globs`)
+- `manual`
+
+### 4) Define exports for consumer-friendly subsets
+
+Exports let consumers install only part of your repository.
+
+- `exports.default` is used when consumers do not pass `--export`.
+- If `exports.default` is absent, Rulepack implicitly selects all modules (`include: ["**"]`).
+
+Example:
+
+```json
+{
+  "exports": {
+    "default": { "include": ["**"] },
+    "core": { "include": ["foundation.*", "standards.*", "languages.*"] },
+    "docs": { "include": ["tasks.documentation"] }
+  }
+}
+```
+
+### 5) Validate your repo as a consumer would
+
+From a separate test project:
+
+```bash
+rulepack init --name repo-validation
+rulepack deps add https://github.com/your-org/your-prompt-repo.git --export default
+rulepack deps install
+rulepack build
+rulepack doctor
+```
+
+For local iteration:
+
+```bash
+rulepack deps add --local ../my-prompt-repo --export default
+rulepack deps install
+rulepack build
+```
+
+### 6) Publishing and compatibility checklist
+
+- Tag versions in your prompt repo so consumers can pin with `--version` or `--ref`.
+- Do not rename module IDs casually; consumers may target them in exports, rules, and profiles.
+- Keep `exports` stable and additive when possible.
+- Re-run `deps install` + `build` in a clean test project before releasing changes.
+- Document your available exports in your repo README.
+
+## File Reference
+
+- Spec: [docs/rulepack-spec.md](./docs/rulepack-spec.md)
+- Example setup: [examples/README.md](./examples/README.md)
+
+## README Conventions (for contributors)
+
+- Keep executable snippets copy-safe (no prompt symbol in `bash` blocks).
+- Prefer compact tables for command references.
+- Use callouts for high-signal guidance:
+  - `[!TIP]` for shortcuts
+  - `[!NOTE]` for defaults/fallbacks
+  - `[!WARNING]` for risky or confirmation-sensitive operations
+- Put deep detail in `<details>` blocks to keep first-read flow concise.
+- Keep placeholder repository values in `your-org/your-rules` style.
+- Only include output blocks when copied from verified CLI runs.
 
 ## Contributors
 
@@ -423,10 +566,9 @@ Contributions are welcome.
 
 - Open an issue first for bugs, UX pain points, or feature proposals.
 - Send a PR with a clear description of user impact and behavior changes.
-- Include or update tests for CLI behavior changes (`human` + `--json` modes).
+- Include or update tests for CLI behavior changes (`human` and `--json` modes).
 - For automation-focused changes, prefer deterministic outputs and document JSON shape updates.
 
 ## License
 
-This project is licensed under the MIT License.
-See `LICENSE` for details.
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
