@@ -39,6 +39,7 @@ func main() {
 	root.AddCommand(a.newDepsCmd())
 	root.AddCommand(a.newBuildCmd())
 	root.AddCommand(a.newDoctorCmd())
+	root.AddCommand(a.newVersionCmd())
 	root.AddCommand(a.newProfileCmd())
 
 	if err := root.Execute(); err != nil {

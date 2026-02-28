@@ -148,6 +148,10 @@ type doctorOutput struct {
 	Checks []doctorCheck `json:"checks"`
 }
 
+type versionOutput struct {
+	Version string `json:"version"`
+}
+
 type outdatedEntry struct {
 	Index        int    `json:"index"`
 	Source       string `json:"source"`

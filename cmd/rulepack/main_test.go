@@ -169,3 +169,22 @@ func TestFilterModulesByPatterns(t *testing.T) {
 		t.Fatalf("expected 2 modules, got %d", len(filtered))
 	}
 }
+
+func TestResolveTargets_AllIncludesClaude(t *testing.T) {
+	targets := resolveTargets("all")
+	if len(targets) != 4 {
+		t.Fatalf("expected 4 targets, got %d (%v)", len(targets), targets)
+	}
+	if targets[3] != "claude" {
+		t.Fatalf("expected claude target, got %v", targets)
+	}
+}
+
+func TestAppVersionDefaultsToDev(t *testing.T) {
+	orig := buildVersion
+	buildVersion = ""
+	t.Cleanup(func() { buildVersion = orig })
+	if got := appVersion(); got != "dev" {
+		t.Fatalf("expected dev, got %q", got)
+	}
+}

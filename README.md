@@ -46,12 +46,13 @@ _Quickstart flow preview: init -> deps add -> deps install -> build._
 | Resolve lockfile | `rulepack deps install` |
 | Build outputs | `rulepack build` |
 | Run diagnostics | `rulepack doctor` |
+| Print CLI version | `rulepack version` |
 
 ## Why Rulepack
 
 - Reuse one shared rules library across many projects.
 - Keep outputs deterministic with lockfiles.
-- Build rules for Cursor, Copilot, and Codex from the same source.
+- Build rules for Cursor, Copilot, Codex, and Claude Code from the same source.
 - Save the current dependency stack as a reusable local profile snapshot.
 
 Typical use cases:
@@ -179,6 +180,7 @@ Global flags:
 | --- | --- | --- | --- |
 | `rulepack init` | Create starter `rulepack.json` | `--name`, `--template rulepack` | `--name` defaults to current directory name |
 | `rulepack doctor` | Run diagnostics on config/lockfile/git/profile store | none | Use after setup or when troubleshooting |
+| `rulepack version` | Print CLI version | none | Supports human and `--json` output |
 
 ### Dependency commands
 
@@ -194,7 +196,7 @@ Global flags:
 
 | Command | Purpose | Common flags | Notes |
 | --- | --- | --- | --- |
-| `rulepack build` | Build target outputs from lockfile | `--target cursor\|copilot\|codex\|all`, `--yes` | `--target` defaults to `all` |
+| `rulepack build` | Build target outputs from lockfile | `--target cursor\|copilot\|codex\|claude\|all`, `--yes` | `--target` defaults to `all` |
 
 > [!WARNING]
 > In non-interactive or `--json` mode, operations that require confirmation (for example `deps add` replacement, some `build` collisions, profile updates) require `--yes`.
@@ -231,6 +233,7 @@ Global flags:
 | `cursor` | `.cursor/rules/` |
 | `copilot` | `.github/copilot-instructions.md` |
 | `codex` | `.codex/rules.md` |
+| `claude` | `.claude/rules/` |
 
 ## Advanced Workflows
 
@@ -303,7 +306,7 @@ rulepack profile diff python-a --rule python.* --rule ml.*
 | Area | Support |
 | --- | --- |
 | Install channels | Homebrew cask, Ubuntu PPA, source build |
-| Output targets | `cursor\|copilot\|codex\|all` |
+| Output targets | `cursor\|copilot\|codex\|claude\|all` |
 | Source types | `git`, `local`, `profile` |
 | Lockfile | `rulepack.lock.json` for deterministic resolution |
 | Human/machine output | human (default), `--json` |
@@ -346,6 +349,17 @@ rulepack profile diff python-a --rule python.* --rule ml.*
 - Duplicate module IDs after composition are rejected.
 - Cursor per-module output includes provenance headers plus one file per module.
 - Copilot and Codex outputs are merged files without provenance headers.
+- Claude output is one Markdown file per rule module under `.claude/rules/`.
+- Cursor and Claude preserve nested source structure when module paths include subfolders.
+  - Example: `modules/backend/api/auth.md` -> `.cursor/rules/backend/api/100-auth.mdc`
+  - Example: `modules/backend/api/auth.md` -> `.claude/rules/backend/api/100-auth.md`
+- Nested path mapping strips a leading `modules/` segment from source module paths.
+- Claude apply mode mapping:
+  - `never` skips file generation.
+  - `glob` emits YAML frontmatter with `paths`.
+  - `always`, `agent`, `manual` emit unconditional rule files.
+- Claude target supports `outDir`, `perModule=true`, and `ext`; `outFile` is not supported.
+- Cursor/Claude builds fail fast when two modules resolve to the same output path.
 
 ## Dependency Resolution Details
 
